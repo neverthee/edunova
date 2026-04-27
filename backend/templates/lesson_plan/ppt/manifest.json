@@ -1,0 +1,32 @@
+{
+  "profiles": {
+    "default": {
+      "template": "official.pptx",
+      "target_slide_count": 12,
+      "layout_map": {
+        "cover": 0,
+        "toc": 2,
+        "content_text": 1,
+        "content_image_left": 8,
+        "content_image_right": 8,
+        "summary": 1,
+        "ending": 0,
+        "game": 7
+      }
+    },
+    "official": {
+      "template": "official.pptx",
+      "target_slide_count": 12,
+      "layout_map": {
+        "cover": 0,
+        "toc": 2,
+        "content_text": 1,
+        "content_image_left": 8,
+        "content_image_right": 8,
+        "summary": 1,
+        "ending": 0,
+        "game": 7
+      }
+    }
+  }
+}
