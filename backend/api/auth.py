@@ -12,6 +12,14 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 # 允许的图片文件扩展名
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+DEFAULT_DEV_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
 
 def allowed_file(filename):
     """检查文件扩展名是否允许"""
@@ -88,7 +96,26 @@ def teacher_required(f):
     """教师权限装饰器"""
     return role_required(['admin', 'teacher'])(f)
 
+
+def build_cors_preflight_response(methods: str):
+    response = make_response()
+    origin = request.headers.get('Origin', '')
+    allowed_origins = current_app.config.get('CORS_ORIGINS') or DEFAULT_DEV_ORIGINS
+
+    if origin in allowed_origins:
+        response.headers['Access-Control-Allow-Origin'] = origin
+
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept, Origin'
+    response.headers['Access-Control-Allow-Methods'] = methods
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
+    response.headers['Access-Control-Max-Age'] = '3600'
+    return response
+
 auth_bp = Blueprint('auth', __name__)
+
+@auth_bp.route('/login', methods=['OPTIONS'])
+def login_options():
+    return build_cors_preflight_response('POST,OPTIONS')
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
@@ -170,6 +197,10 @@ def login():
     except Exception as e:
         print(f"创建令牌时出错: {str(e)}")
         return jsonify({"error": f"Authentication error: {str(e)}"}), 500
+
+@auth_bp.route('/register', methods=['OPTIONS'])
+def register_options():
+    return build_cors_preflight_response('POST,OPTIONS')
 
 @auth_bp.route('/register', methods=['POST'])
 def register():
