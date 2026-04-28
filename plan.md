@@ -4,7 +4,7 @@ overview: 基于 Codex 已完成的部署适配代码，梳理从购买域名到
 todos:
   - id: code-cleanup
     content: 本地代码收尾：.gitignore 排除 source/ 大文件、确认 .env 安全、提交最终版本
-    status: pending
+    status: completed
   - id: buy-domain
     content: 阿里云购买域名并完成实名认证
     status: pending
@@ -59,20 +59,22 @@ Codex 已经完成的部署适配（commit `9859c54`）：
 
 当前 `source/` 目录包含视频（`.mp4`，约 20MB）和多个测试文档，这些不应推送到 GitHub（浪费仓库空间、拖慢 clone）。
 
-操作：
-- 在 `.gitignore` 中添加 `source/` 目录（或仅排除大文件类型 `*.mp4`）
-- 如果这些文件已被 Git 跟踪，需要 `git rm --cached` 移除
+已处理：
+- `.gitignore` 已添加 `source/`
+- 已从 Git 索引移除 `source/`，本机文件保留
 
 ### 1.2 确认 `backend/.env` 内容安全
 
 - 检查 `backend/.env` 中的 `LLM_API_KEY` 是否已替换为占位符
 - 如果曾经提交过真实 Key（在历史 commit 中），上线前到阿里云控制台轮换 API Key
 
-### 1.3 创建 `.env.production` 前端文件
+### 1.3 前端生产环境变量
 
-- 复制 `frontend/.env.production.example` 为 `frontend/.env.production`
-- 填入真实的后端 API 地址（等域名确定后填写）
-- 此文件不提交到 Git（已被 `.gitignore` 排除）
+推荐在 Vercel 项目设置里配置，不在本地提交 `.env.production`：
+
+```text
+VITE_API_BASE_URL=https://api.你的域名.com
+```
 
 ---
 

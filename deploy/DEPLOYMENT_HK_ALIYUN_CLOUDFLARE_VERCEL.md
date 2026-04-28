@@ -94,7 +94,7 @@ nslookup -type=ns example.com 8.8.8.8
 在 GitHub 创建私有仓库后，在本地执行：
 
 ```powershell
-cd E:\edunova
+cd <你的项目目录>
 git remote add origin https://github.com/<你的用户名>/edunova.git
 git branch -M main
 git push -u origin main

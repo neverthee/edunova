@@ -76,10 +76,15 @@ backend/uploads/*
 !backend/uploads/materials/.gitkeep
 uploads/*
 !uploads/materials/.gitkeep
+source/
+frontend/public/frontend_demo.html
+frontend/public/md-test.html
+frontend/public/test-*.html
 
 # Environment variables
 .env
 .env.local
+.env.production
 .env.*.local
 
 # Virtual environment

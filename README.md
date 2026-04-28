@@ -29,17 +29,7 @@ EduNova 是一个面向教学场景的前后端分离项目，提供课程管理
 
 ### 2. Python 解释器路径
 
-后端默认使用系统 PATH 里的 `python`。如果你的 Python 不在 PATH，修改或覆盖 `start_backend.bat` 里的这一行：
-
-```bat
-set "PYTHON_EXE=python"
-```
-
-例如：
-
-```bat
-set "PYTHON_EXE=<你的 Conda 或 Python 环境>\python.exe"
-```
+后端默认使用系统 PATH 里的 `python`。如果你的 Python 不在 PATH，不要修改启动脚本，在启动前临时指定：
 
 也可以在启动前临时指定：
 
@@ -74,13 +64,7 @@ $env:NPM_CMD_OVERRIDE="<你的 Node.js 安装目录>\npm.cmd"
 
 ### 4. LibreOffice 路径
 
-Word / PPT 导出和部分文档转码依赖 LibreOffice。后端启动脚本默认查找：
-
-```bat
-set "SOFFICE_PATH=C:\Program Files\LibreOffice\program\soffice.exe"
-```
-
-如果安装位置不同，请修改 `start_backend.bat` 中的 `SOFFICE_PATH`，或启动前临时指定：
+Word / PPT 导出和部分文档转码依赖 LibreOffice。通常安装后 `soffice` / `libreoffice` 在 PATH 中即可；如果安装位置不同，请启动前临时指定：
 
 ```powershell
 $env:SOFFICE_PATH="<你的 LibreOffice 安装目录>\program\soffice.exe"
@@ -172,7 +156,7 @@ npm install
 │   ├── public/                 静态资源
 │   ├── src/                    前端源码
 │   └── package.json
-├── source/                     项目示例素材
+├── source/                     本地示例素材，不提交到 Git
 ├── example/                    示例资料
 ├── uploads/                    运行时知识库产物目录
 ├── run.bat                     同时启动前后端
@@ -193,4 +177,4 @@ npm install
 - `__pycache__`
 - 任何写有真实密钥的 `.env`
 
-当前仓库中的 `backend\.env` 已替换为占位配置，接收方需要填自己的 API Key。
+当前仓库不跟踪 `backend\.env`，接收方需要从模板复制并填写自己的 API Key。

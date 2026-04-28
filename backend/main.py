@@ -89,6 +89,18 @@ CORS(app, resources={r"/*": {
     "max_age": 3600
 }})
 
+
+@app.after_request
+def enforce_configured_cors(response):
+    origin = request.headers.get('Origin', '')
+    if origin in CORS_ORIGINS:
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+        response.headers.add('Vary', 'Origin')
+    else:
+        response.headers.pop('Access-Control-Allow-Origin', None)
+    return response
+
 # 全局OPTIONS处理
 @app.route('/', defaults={'path': ''}, methods=['OPTIONS'])
 @app.route('/<path:path>', methods=['OPTIONS'])

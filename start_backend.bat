@@ -5,8 +5,7 @@ set "ROOT_DIR=%~dp0"
 set "LOCAL_ENV_FILE=%ROOT_DIR%.env.local"
 if exist "%LOCAL_ENV_FILE%" call :load_env_file "%LOCAL_ENV_FILE%"
 
-set "PYTHON_EXE=C:\Users\86152\.conda\envs\edunova2\python.exe"
-if not exist "%PYTHON_EXE%" set "PYTHON_EXE=python"
+set "PYTHON_EXE=python"
 if defined PYTHON_EXE_OVERRIDE set "PYTHON_EXE=%PYTHON_EXE_OVERRIDE%"
 if exist "%PYTHON_EXE%" (
   for %%I in ("%PYTHON_EXE%") do set "CONDA_ENV_DIR=%%~dpI"
