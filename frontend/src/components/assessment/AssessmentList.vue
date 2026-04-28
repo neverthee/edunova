@@ -305,6 +305,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import { useAuthStore } from '@/stores/auth';
 import AssessmentEditor from './AssessmentEditor.vue';
 import { courseAPI, assessmentAPI } from '@/api';
 import notificationService from '@/services/notificationService';
@@ -327,6 +328,7 @@ const props = defineProps({
 const emit = defineEmits(['create', 'edit', 'delete', 'take', 'view-submissions']);
 
 const router = useRouter();
+const authStore = useAuthStore();
 
 // 状态变量
 const assessments = ref([]);
@@ -455,32 +457,28 @@ const fetchCourses = async () => {
 
 const fetchStudentSubmissions = async () => {
   try {
-    // 实际应用中，这里应该调用API
-    // const response = await fetch(`/api/students/1/submissions`);
-    // const data = await response.json();
-    
-    // 模拟数据
-    const data = {
-      submissions: [
-        {
-          id: 1,
-          student_id: 1,
-          assessment_id: 1,
-          score: 85,
-          submitted_at: '2025-06-10T15:30:00Z',
-          graded_at: '2025-06-11T10:15:00Z'
-        }
-      ]
-    };
-    
+    if (!authStore.user?.id) {
+      assessments.value.forEach(assessment => {
+        assessment.submissions = [];
+      });
+      return;
+    }
+
+    const data = await assessmentAPI.getSubmissionsByStudent(authStore.user.id, {
+      per_page: 200
+    });
+
     // 将提交数据添加到对应的评估中
     assessments.value.forEach(assessment => {
-      assessment.submissions = data.submissions.filter(
+      assessment.submissions = (data.submissions || []).filter(
         submission => submission.assessment_id === assessment.id
       );
     });
   } catch (error) {
     console.error('获取提交状态失败:', error);
+    assessments.value.forEach(assessment => {
+      assessment.submissions = [];
+    });
   }
 };
 
@@ -630,14 +628,12 @@ const deleteAssessment = async (assessment) => {
 
 const takeAssessment = (assessment) => {
   emit('take', assessment);
-  // 或者直接导航到评估页面
-  // router.push(`/assessments/${assessment.id}/take`);
+  router.push(`/assessments/${assessment.id}/take`);
 };
 
 const viewSubmissions = (assessment) => {
   emit('view-submissions', { assessment: assessment });
-  // 或者直接导航到提交页面
-  // router.push(`/assessments/${assessment.id}/submissions`);
+  router.push(`/assessments/${assessment.id}`);
 };
 
 const viewAllSubmissions = (assessment) => {

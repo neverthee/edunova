@@ -10,8 +10,8 @@ const isLocalBrowser =
   ['localhost', '127.0.0.1'].includes(window.location.hostname)
 
 // In local Vite dev, prefer the same-origin /api proxy instead of hard-coding
-// localhost:5001. This avoids CORS issues when Vite auto-switches from 3000 to 3001.
+// localhost:5001 unless VITE_API_BASE_URL is explicitly configured.
 export const API_ORIGIN = trimTrailingSlash(
-  isLocalBrowser ? '' : (envOrigin || DEFAULT_API_ORIGIN)
+  envOrigin || (isLocalBrowser ? '' : DEFAULT_API_ORIGIN)
 )
 export const API_BASE_URL = API_ORIGIN ? `${API_ORIGIN}/api` : '/api'

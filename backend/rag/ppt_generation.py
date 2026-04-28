@@ -87,17 +87,51 @@ def normalize_ppt_outline_to_12_slides(spec: Dict[str, Any], target_slide_count:
         "toc": {"items": [item.get("toc_title") or item["title"] or f"Topic {index + 1}" for index, item in enumerate(content_slides)]},
         "content_slides": content_slides,
         "summary": _build_summary_slide(summary_candidates, requirement, content_slides),
-        "ending": {"title": "Thank You", "subtitle": "EduNova generated presentation"},
+        "ending": {"title": "Thank You", "subtitle": "易度新星 EduNova generated presentation"},
     }
+
+
+PPT_TEMPLATE_ROOT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "templates", "lesson_plan", "ppt",
+)
+PPT_TEMPLATE_MANIFEST = os.path.join(PPT_TEMPLATE_ROOT, "manifest.json")
 
 
 def resolve_ppt_template(template_profile: Optional[str] = None) -> Dict[str, Any]:
+    profile = str(template_profile or "default").strip().lower() or "default"
+    manifest = _load_ppt_manifest()
+    profiles = manifest.get("profiles") if isinstance(manifest.get("profiles"), dict) else {}
+    profile_meta = profiles.get(profile) if isinstance(profiles.get(profile), dict) else {}
+    if not profile_meta and profile != "default":
+        profile_meta = profiles.get("default") if isinstance(profiles.get("default"), dict) else {}
+        profile = "default"
+
+    template_name = str(profile_meta.get("template") or "official.pptx").strip()
+    template_path = os.path.join(PPT_TEMPLATE_ROOT, template_name)
+    if not os.path.exists(template_path):
+        template_path = None
+
+    layout_map = profile_meta.get("layout_map") if isinstance(profile_meta.get("layout_map"), dict) else {}
+
     return {
-        "profile": str(template_profile or "default").strip().lower() or "default",
-        "template_path": None,
-        "target_slide_count": 12,
-        "layout_map": {},
+        "profile": profile,
+        "template_path": template_path,
+        "target_slide_count": int(profile_meta.get("target_slide_count", 12) or 12),
+        "layout_map": layout_map,
     }
+
+
+def _load_ppt_manifest() -> Dict[str, Any]:
+    if not os.path.exists(PPT_TEMPLATE_MANIFEST):
+        return {}
+    try:
+        import json
+        with open(PPT_TEMPLATE_MANIFEST, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
 
 
 def build_game_entry(
@@ -320,12 +354,19 @@ def render_pptx(
     game_entry: Optional[Dict[str, Any]] = None,
     template_profile: Optional[str] = None,
 ) -> Dict[str, int]:
-    prs = Presentation()
+    template_meta = resolve_ppt_template(template_profile)
+    template_path = template_meta.get("template_path")
+    layout_map = template_meta.get("layout_map") if isinstance(template_meta.get("layout_map"), dict) else {}
+
+    if template_path:
+        prs = Presentation(template_path)
+    else:
+        prs = Presentation()
     prs.slide_width = SLIDE_WIDTH
     prs.slide_height = SLIDE_HEIGHT
 
-    _render_cover_slide(prs, normalized_plan.get("cover", {}), theme_config, spec)
-    _render_toc_slide(prs, normalized_plan.get("toc", {}), theme_config)
+    _render_cover_slide(prs, normalized_plan.get("cover", {}), theme_config, spec, layout_map)
+    _render_toc_slide(prs, normalized_plan.get("toc", {}), theme_config, layout_map)
 
     image_stats = {"teacher_images": 0, "keyframes": 0, "gallery_images": 0, "text_only_slides": 0}
     content_slides = normalized_plan.get("content_slides") if isinstance(normalized_plan.get("content_slides"), list) else []
@@ -342,15 +383,26 @@ def render_pptx(
             image_stats["keyframes"] += 1
         elif image["source_type"] == "gallery":
             image_stats["gallery_images"] += 1
-        _render_content_slide(prs, slide_data, theme_config, image, layout_name, index + 3, game_entry=game_entry)
+        _render_content_slide(prs, slide_data, theme_config, image, layout_name, index + 3, game_entry=game_entry, layout_map=layout_map)
 
-    _render_summary_slide(prs, normalized_plan.get("summary", {}), theme_config, 11)
+    _render_summary_slide(prs, normalized_plan.get("summary", {}), theme_config, 11, layout_map)
     if game_entry:
-        _render_game_entry_slide(prs, game_entry, theme_config, 12)
+        _render_game_entry_slide(prs, game_entry, theme_config, 12, layout_map)
     else:
-        _render_ending_slide(prs, normalized_plan.get("ending", {}), theme_config, 12)
+        _render_ending_slide(prs, normalized_plan.get("ending", {}), theme_config, 12, layout_map)
     prs.save(output_path)
     return image_stats
+
+
+def _get_layout(prs: Presentation, layout_map: Dict[str, Any], key: str) -> Any:
+    """Return the slide layout for *key* from *layout_map*, falling back to blank."""
+    idx = layout_map.get(key)
+    if idx is not None:
+        try:
+            return prs.slide_layouts[int(idx)]
+        except (IndexError, ValueError):
+            pass
+    return prs.slide_layouts[6]
 
 
 def persist_generated_material(
@@ -598,15 +650,19 @@ def _download_gallery_image(image_url: str, photo_id: str, query: str, course_id
     return abs_path
 
 
-def _render_cover_slide(prs: Presentation, cover: Dict[str, Any], theme: Dict[str, Any], spec: Dict[str, Any]) -> None:
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
+def _render_cover_slide(prs: Presentation, cover: Dict[str, Any], theme: Dict[str, Any], spec: Dict[str, Any], layout_map: Optional[Dict[str, Any]] = None) -> None:
+    layout_map = layout_map or {}
+    layout = _get_layout(prs, layout_map, "cover")
+    slide = prs.slides.add_slide(layout)
     _paint_slide_background(slide, theme, "cover")
-    _add_textbox(slide, str(cover.get("title") or "AI Lesson Deck"), 0.9, 1.7, 11.0, 1.4, theme["cover_title_size"], theme["text"], theme["font_family"], True)
-    _add_textbox(slide, str(cover.get("subtitle") or "EduNova generated presentation"), 0.95, 3.0, 8.8, 0.7, 18, theme["muted"], theme["font_family"])
+    _fill_placeholder_or_textbox(slide, 0, str(cover.get("title") or "AI Lesson Deck"), 0.9, 1.7, 11.0, 1.4, theme["cover_title_size"], theme["text"], theme["font_family"], True)
+    _fill_placeholder_or_textbox(slide, 1, str(cover.get("subtitle") or "易度新星 EduNova generated presentation"), 0.95, 3.0, 8.8, 0.7, 18, theme["muted"], theme["font_family"])
 
 
-def _render_toc_slide(prs: Presentation, toc: Dict[str, Any], theme: Dict[str, Any]) -> None:
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
+def _render_toc_slide(prs: Presentation, toc: Dict[str, Any], theme: Dict[str, Any], layout_map: Optional[Dict[str, Any]] = None) -> None:
+    layout_map = layout_map or {}
+    layout = _get_layout(prs, layout_map, "toc")
+    slide = prs.slides.add_slide(layout)
     _paint_slide_background(slide, theme, "toc")
     _add_page_title(slide, "Agenda", theme)
     items = toc.get("items") if isinstance(toc.get("items"), list) else []
@@ -629,8 +685,17 @@ def _render_content_slide(
     layout_name: str,
     page_number: int,
     game_entry: Optional[Dict[str, Any]] = None,
+    layout_map: Optional[Dict[str, Any]] = None,
 ) -> None:
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    layout_map = layout_map or {}
+    if layout_name == "text-focus":
+        layout_key = "content_text"
+    elif layout_name == "image-left":
+        layout_key = "content_img_left"
+    else:
+        layout_key = "content_img_right"
+    layout = _get_layout(prs, layout_map, layout_key)
+    slide = prs.slides.add_slide(layout)
     _paint_slide_background(slide, theme, "content")
     title_text = str(slide_data.get("title") or "Content Slide")
     title_bottom = _add_page_title(slide, title_text, theme)
@@ -685,24 +750,30 @@ def _add_homework_game_link(
     )
 
 
-def _render_summary_slide(prs: Presentation, summary: Dict[str, Any], theme: Dict[str, Any], page_number: int) -> None:
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
+def _render_summary_slide(prs: Presentation, summary: Dict[str, Any], theme: Dict[str, Any], page_number: int, layout_map: Optional[Dict[str, Any]] = None) -> None:
+    layout_map = layout_map or {}
+    layout = _get_layout(prs, layout_map, "summary")
+    slide = prs.slides.add_slide(layout)
     _paint_slide_background(slide, theme, "summary")
     _add_page_title(slide, str(summary.get("title") or "Lesson Summary"), theme)
     _add_summary_cards(slide, [str(item).strip() for item in summary.get("bullets", []) if str(item).strip()][:4], theme)
     _add_footer(slide, page_number, theme)
 
 
-def _render_ending_slide(prs: Presentation, ending: Dict[str, Any], theme: Dict[str, Any], page_number: int) -> None:
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
+def _render_ending_slide(prs: Presentation, ending: Dict[str, Any], theme: Dict[str, Any], page_number: int, layout_map: Optional[Dict[str, Any]] = None) -> None:
+    layout_map = layout_map or {}
+    layout = _get_layout(prs, layout_map, "ending")
+    slide = prs.slides.add_slide(layout)
     _paint_slide_background(slide, theme, "ending")
     _add_textbox(slide, str(ending.get("title") or "Thank You"), 1.2, 2.2, 10.8, 1.1, theme["cover_title_size"], theme["text"], theme["font_family"], True, PP_ALIGN.CENTER)
     _add_textbox(slide, str(ending.get("subtitle") or ""), 1.6, 3.45, 10.0, 0.7, 18, theme["muted"], theme["font_family"], False, PP_ALIGN.CENTER)
     _add_footer(slide, page_number, theme)
 
 
-def _render_game_entry_slide(prs: Presentation, game_entry: Dict[str, Any], theme: Dict[str, Any], page_number: int) -> None:
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
+def _render_game_entry_slide(prs: Presentation, game_entry: Dict[str, Any], theme: Dict[str, Any], page_number: int, layout_map: Optional[Dict[str, Any]] = None) -> None:
+    layout_map = layout_map or {}
+    layout = _get_layout(prs, layout_map, "ending")
+    slide = prs.slides.add_slide(layout)
     _paint_slide_background(slide, theme, "ending")
     _add_page_title(slide, str(game_entry.get("title") or "小游戏入口页"), theme)
     _add_textbox(
@@ -754,6 +825,42 @@ def _render_game_entry_slide(prs: Presentation, game_entry: Dict[str, Any], them
     _add_textbox(slide, "扫码下载小游戏", 8.7, 5.2, 2.9, 0.35, 13, theme["text"], theme["font_family"], True, PP_ALIGN.CENTER)
     _add_textbox(slide, "如扫码受限，可直接点击左侧链接。", 8.55, 5.56, 3.2, 0.38, 10, theme["muted"], theme["font_family"], False, PP_ALIGN.CENTER)
     _add_footer(slide, page_number, theme)
+
+
+def _fill_placeholder_or_textbox(
+    slide: Any,
+    ph_idx: int,
+    text: str,
+    left: float,
+    top: float,
+    width: float,
+    height: float,
+    font_size: int,
+    color: Tuple[int, int, int],
+    font_family: str,
+    bold: bool = False,
+    alignment: PP_ALIGN = PP_ALIGN.LEFT,
+) -> None:
+    """Try to fill a layout placeholder by *ph_idx*; fall back to a free textbox."""
+    placeholder = None
+    try:
+        placeholder = slide.placeholders[ph_idx]
+    except (KeyError, IndexError):
+        pass
+
+    if placeholder is not None:
+        text_frame = placeholder.text_frame
+        text_frame.clear()
+        text_frame.word_wrap = True
+        paragraph = text_frame.paragraphs[0]
+        paragraph.text = text
+        paragraph.alignment = alignment
+        paragraph.font.name = font_family
+        paragraph.font.size = Pt(font_size)
+        paragraph.font.bold = bold
+        paragraph.font.color.rgb = _rgb(color)
+    else:
+        _add_textbox(slide, text, left, top, width, height, font_size, color, font_family, bold, alignment)
 
 
 def _paint_slide_background(slide: Any, theme: Dict[str, Any], variant: str) -> None:

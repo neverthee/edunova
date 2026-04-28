@@ -50,10 +50,11 @@
                   >
                     <div class="h-8 w-8 rounded-full overflow-hidden flex items-center justify-center">
                       <img 
-                        v-if="authStore.user?.avatar_url" 
+                        v-if="displayAvatarUrl" 
                         :src="`${apiOrigin}${authStore.user.avatar_url}`" 
                         alt="用户头像" 
                         class="h-full w-full object-cover"
+                        @error="handleAvatarLoadError"
                       />
                       <div v-else class="h-full w-full bg-primary-600 flex items-center justify-center">
                         <span class="text-white text-sm font-medium">
@@ -86,20 +87,6 @@
                     </div>
                   </div>
                 </div>
-              </template>
-              <template v-else>
-                <router-link
-                  to="/login"
-                  class="text-gray-500 hover:text-gray-700 px-3 py-2 rounded-md text-sm font-medium"
-                >
-                  登录
-                </router-link>
-                <router-link
-                  to="/register"
-                  class="btn btn-primary"
-                >
-                  注册
-                </router-link>
               </template>
             </div>
           </div>
@@ -142,7 +129,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, provide } from 'vue'
+import { ref, computed, onMounted, onUnmounted, provide, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { courseAPI, materialAPI } from './api'
@@ -162,6 +149,7 @@ const apiOrigin = API_ORIGIN
 const isInitializing = ref(true)
 const userMenuOpen = ref(false)
 const userMenuRef = ref<HTMLElement | null>(null)
+const avatarLoadFailed = ref(false)
 
 // 全局数据
 const globalCourses = ref<any[]>([]);
@@ -236,12 +224,17 @@ const activeHeaderTab = computed(() => {
   return defaultActiveTabByRouteName[currentHeaderRouteName.value] || ''
 })
 
+const displayAvatarUrl = computed(() => {
+  const avatarUrl = String(authStore.user?.avatar_url || '').trim()
+  return Boolean(avatarUrl) && !avatarLoadFailed.value
+})
+
 // 方法
 const handleLogout = async () => {
   try {
     authStore.logout()
     notificationService.success('退出成功', '您已成功退出登录')
-    router.push('/login')
+    router.push('/start')
   } catch (error) {
     notificationService.error('退出失败', '退出登录时发生错误')
   }
@@ -254,6 +247,10 @@ provide('showNotification', (type: 'success' | 'error' | 'warning' | 'info', tit
 
 function toggleUserMenu() {
   userMenuOpen.value = !userMenuOpen.value
+}
+
+function handleAvatarLoadError() {
+  avatarLoadFailed.value = true
 }
 
 function handleHeaderTabClick(tabId: string) {
@@ -361,6 +358,14 @@ authStore.$subscribe((mutation, state) => {
     loadGlobalData();
   }
 });
+
+watch(
+  () => authStore.user?.avatar_url,
+  () => {
+    avatarLoadFailed.value = false
+  },
+  { immediate: true }
+)
 
 async function loadGlobalData() {
   if (isDataLoading.value) return;

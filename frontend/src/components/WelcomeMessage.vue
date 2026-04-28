@@ -18,7 +18,7 @@
             欢迎回来，{{ userName }}
           </h3>
           <p class="text-slate-500 text-sm">
-            您的智能教学助手已就绪，今天想开启哪项教学任务？
+            {{ welcomeSubtitle }}
           </p>
         </div>
       </div>
@@ -159,30 +159,117 @@
       </div>
       
       <!-- 学生快速操作 -->
-      <div v-if="userRole === 'student'" class="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <button @click="navigate('courses')" class="student-action-card group">
-          <div class="action-icon bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-all duration-300">
-            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-            </svg>
+      <div v-if="userRole === 'student'" class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.95fr)]">
+        <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <button @click="navigate('my-courses')" class="student-action-card group">
+            <div class="action-icon bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-all duration-300">
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+              </svg>
+            </div>
+            <span class="text-slate-700 font-semibold group-hover:text-blue-600 transition-colors">我的课程</span>
+            <span class="mt-1 text-xs text-slate-400">已加入课程与学习进度</span>
+          </button>
+
+          <button @click="navigate('courses')" class="student-action-card group">
+            <div class="action-icon bg-cyan-50 text-cyan-600 group-hover:bg-cyan-600 group-hover:text-white transition-all duration-300">
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7.5l9-4 9 4m-18 0l9 4m-9-4v9l9 4m0-9l9-4m-9 4v9" />
+              </svg>
+            </div>
+            <span class="text-slate-700 font-semibold group-hover:text-cyan-600 transition-colors">课程目录</span>
+            <span class="mt-1 text-xs text-slate-400">发现新课程与学习资源</span>
+          </button>
+
+          <button @click="navigate('ai-assistant')" class="student-action-card group">
+            <div class="action-icon bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+              </svg>
+            </div>
+            <span class="text-slate-700 font-semibold group-hover:text-indigo-600 transition-colors">智能助手</span>
+            <span class="mt-1 text-xs text-slate-400">答疑、练习与学习支持</span>
+          </button>
+
+          <button @click="navigate('analytics')" class="student-action-card group">
+            <div class="action-icon bg-emerald-50 text-emerald-600 group-hover:bg-emerald-500 group-hover:text-white transition-all duration-300">
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+            </div>
+            <span class="text-slate-700 font-semibold group-hover:text-emerald-600 transition-colors">学习分析</span>
+            <span class="mt-1 text-xs text-slate-400">跟踪表现与进度趋势</span>
+          </button>
+        </div>
+
+        <button
+          @click="navigate('assessments')"
+          class="group flex h-full flex-col rounded-3xl border border-slate-100 bg-white p-6 text-left shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
+        >
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <div class="flex items-center gap-3">
+                <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 text-rose-600 transition-all duration-300 group-hover:bg-rose-500 group-hover:text-white">
+                  <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12.75l2.25 2.25L15 9.75M8.25 3.75h7.5A2.25 2.25 0 0118 6v12a2.25 2.25 0 01-2.25 2.25h-7.5A2.25 2.25 0 016 18V6a2.25 2.25 0 012.25-2.25z" />
+                  </svg>
+                </div>
+                <div>
+                  <div class="text-lg font-bold text-slate-900">待办事项</div>
+                  <div class="text-sm text-slate-500">统一查看待完成评估与作业</div>
+                </div>
+              </div>
+            </div>
+            <span class="rounded-full bg-rose-50 px-3 py-1 text-xs font-bold text-rose-600">
+              {{ studentTodoLoading ? '加载中' : `${studentTodoItems.length} 项` }}
+            </span>
           </div>
-          <span class="text-slate-700 font-semibold group-hover:text-blue-600 transition-colors">我的课程</span>
-        </button>
-        <button @click="navigate('ai-assistant')" class="student-action-card group">
-          <div class="action-icon bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">
-            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-            </svg>
+
+          <div class="mt-5 grid grid-cols-2 gap-3">
+            <div class="rounded-2xl bg-slate-50 px-4 py-3">
+              <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400">待完成评估</div>
+              <div class="mt-1 text-2xl font-bold text-slate-900">{{ pendingAssessmentCount }}</div>
+            </div>
+            <div class="rounded-2xl bg-amber-50/80 px-4 py-3">
+              <div class="text-[11px] font-bold uppercase tracking-wider text-amber-500">待提交作业</div>
+              <div class="mt-1 text-2xl font-bold text-amber-600">{{ pendingAssignmentCount }}</div>
+            </div>
           </div>
-          <span class="text-slate-700 font-semibold group-hover:text-indigo-600 transition-colors">智能助手</span>
-        </button>
-        <button @click="navigate('analytics')" class="student-action-card group">
-          <div class="action-icon bg-emerald-50 text-emerald-600 group-hover:bg-emerald-500 group-hover:text-white transition-all duration-300">
-            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
+
+          <div class="mt-5 flex-1">
+            <div v-if="studentTodoLoading" class="space-y-3">
+              <div v-for="index in 3" :key="index" class="h-14 rounded-2xl bg-slate-100/80 animate-pulse"></div>
+            </div>
+            <div v-else-if="todoPreview.length === 0" class="flex h-full min-h-[176px] flex-col items-center justify-center rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/60 px-4 text-center">
+              <div class="text-sm font-semibold text-emerald-700">当前没有待完成任务</div>
+              <div class="mt-1 text-xs text-emerald-600">可以继续推进课程学习或查看历史成绩。</div>
+            </div>
+            <div v-else class="space-y-3">
+              <div
+                v-for="item in todoPreview"
+                :key="item.id"
+                class="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 transition group-hover:border-slate-200"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="truncate text-sm font-semibold text-slate-900">{{ item.title }}</div>
+                    <div class="mt-1 truncate text-xs text-slate-500">{{ item.courseName }}</div>
+                  </div>
+                  <span class="shrink-0 rounded-full px-2 py-1 text-[11px] font-bold" :class="todoTypeClass(item.type)">
+                    {{ todoTypeText(item.type) }}
+                  </span>
+                </div>
+                <div class="mt-2 text-xs text-slate-500">
+                  {{ formatTodoDueDate(item.dueDate) }}
+                </div>
+              </div>
+            </div>
           </div>
-          <span class="text-slate-700 font-semibold group-hover:text-emerald-600 transition-colors">学习分析</span>
+
+          <div class="mt-5 flex items-center justify-between border-t border-slate-100 pt-4 text-sm">
+            <span class="text-slate-500">进入任务页继续处理</span>
+            <span class="font-semibold text-rose-600">查看全部</span>
+          </div>
         </button>
       </div>
     </div>
@@ -271,6 +358,17 @@ interface DashboardOverview {
   notification_count?: number;
 }
 
+interface StudentTodoItem {
+  id: number;
+  title: string;
+  description?: string;
+  type: string;
+  courseId: number;
+  courseName: string;
+  dueDate?: string | null;
+  startDate?: string | null;
+}
+
 const props = defineProps({
   activeTab: {
     type: String,
@@ -279,6 +377,14 @@ const props = defineProps({
   dashboardOverview: {
     type: Object as PropType<DashboardOverview | null>,
     default: null
+  },
+  studentTodoItems: {
+    type: Array as PropType<StudentTodoItem[]>,
+    default: () => []
+  },
+  studentTodoLoading: {
+    type: Boolean,
+    default: false
   }
 });
 
@@ -307,6 +413,25 @@ const userInitials = computed(() => {
     .join('')
     .toUpperCase();
 });
+const welcomeSubtitle = computed(() => {
+  switch (userRole.value) {
+    case 'teacher':
+      return '您的智能教学助手已就绪，今天想开启哪项教学任务？';
+    case 'student':
+      return '学习计划、课程进度和待完成任务已经为您准备好。';
+    case 'admin':
+      return '系统运行状态、关键数据和管理入口已同步完成。';
+    default:
+      return '您的智能教学助手已就绪。';
+  }
+});
+const todoPreview = computed(() => props.studentTodoItems.slice(0, 4));
+const pendingAssignmentCount = computed(() =>
+  props.studentTodoItems.filter(item => item.type === 'assignment').length
+);
+const pendingAssessmentCount = computed(() =>
+  props.studentTodoItems.filter(item => item.type !== 'assignment').length
+);
 
 // 系统状态信息
 const activeNotificationCount = computed(() => notificationService.getNotifications().value.length);
@@ -340,6 +465,50 @@ const formatDate = (dateString: string) => {
 const navigate = (tab: string) => {
   emit('update:activeTab', tab);
 };
+
+const todoTypeText = (type?: string) => {
+  switch (type) {
+    case 'assignment':
+      return '作业';
+    case 'exam':
+      return '考试';
+    case 'quiz':
+      return '测验';
+    default:
+      return '任务';
+  }
+};
+
+const todoTypeClass = (type?: string) => {
+  switch (type) {
+    case 'assignment':
+      return 'bg-amber-50 text-amber-600';
+    case 'exam':
+      return 'bg-rose-50 text-rose-600';
+    case 'quiz':
+      return 'bg-blue-50 text-blue-600';
+    default:
+      return 'bg-slate-100 text-slate-600';
+  }
+};
+
+const formatTodoDueDate = (dateString?: string | null) => {
+  if (!dateString) {
+    return '无截止时间限制';
+  }
+
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) {
+    return '截止时间待定';
+  }
+
+  return `截止 ${date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })}`;
+};
 </script>
 
 <style scoped>
@@ -350,6 +519,14 @@ const navigate = (tab: string) => {
 
 .action-icon {
   @apply w-14 h-14 rounded-2xl flex items-center justify-center mb-4 transition-all duration-500;
+}
+
+.student-action-card {
+  @apply min-h-[188px] p-5;
+}
+
+.student-action-card .action-icon {
+  @apply mb-3 h-12 w-12 rounded-xl;
 }
 
 /* 教师工作流卡片 - 侧边型 */

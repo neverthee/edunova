@@ -1,1 +1,1 @@
-我的python解释器路径为C:\Users\86152\.conda\envs\edunova2\python.exe
+本地 Python 解释器路径请通过 PYTHON_EXE_OVERRIDE 环境变量覆盖，不要提交个人机器路径。

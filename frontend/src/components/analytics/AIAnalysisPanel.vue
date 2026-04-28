@@ -15,12 +15,13 @@
       </button>
     </div>
     
-    <div v-if="!analysis && !loading" class="text-center py-8">
+    <div v-if="!hasVisibleAnalysis && !loading" class="text-center py-8">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
       </svg>
       <h3 class="text-lg font-medium text-gray-900 mb-2">暂无AI分析</h3>
-      <p class="text-gray-500 mb-4">点击"刷新建议"按钮获取基于学习数据的AI分析建议</p>
+      <p class="text-gray-500 mb-2">{{ emptyMessage }}</p>
+      <p v-if="errorMessage" class="text-sm text-red-600">{{ errorMessage }}</p>
     </div>
     
     <div v-else-if="loading" class="flex flex-col items-center justify-center py-8">
@@ -91,7 +92,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { analyticsAPI } from '@/api';
 
 const props = defineProps({
@@ -114,11 +115,31 @@ interface AIAnalysis {
 
 const loading = ref(false);
 const analysis = ref<AIAnalysis | null>(null);
+const errorMessage = ref('');
+
+const hasVisibleAnalysis = computed(() => {
+  if (!analysis.value) {
+    return false;
+  }
+  return (
+    analysis.value.strengths.length > 0 ||
+    analysis.value.improvements.length > 0 ||
+    analysis.value.suggestions.length > 0
+  );
+});
+
+const emptyMessage = computed(() => {
+  if (errorMessage.value) {
+    return '学习建议加载失败，当前未展示建议内容。';
+  }
+  return '当前学习数据不足，暂时无法生成个性化建议。';
+});
 
 // 生成AI分析建议
 async function generateAnalysis() {
   try {
     loading.value = true;
+    errorMessage.value = '';
     
     // 构建请求参数
     const params: {studentId?: number | string, courseId?: number | string} = {};
@@ -127,64 +148,41 @@ async function generateAnalysis() {
     
     console.log('发送AI分析请求:', params);
     
-    // 调用API
-    try {
-      const response = await analyticsAPI.getAIAnalysis(params);
-      
-      if (response && response.data) {
-        analysis.value = response.data;
-        console.log('获取AI分析成功:', response.data);
-      } else {
-        console.warn('API返回了空数据');
-        // 使用模拟数据
-        useMockData();
-      }
-    } catch (error: any) {
-      console.error('获取AI分析建议失败:', error);
-      
-      // 检查是否是405错误（方法不允许）
-      if (error.response && error.response.status === 405) {
-        console.warn('API方法不允许，可能是端点配置错误。尝试使用模拟数据。');
-      }
-      
-      // 使用模拟数据
-      useMockData();
+    if (!params.studentId) {
+      analysis.value = null;
+      return;
     }
-  } catch (error) {
-    console.error('生成AI分析建议过程中出错:', error);
-    // 使用模拟数据
-    useMockData();
+
+    const response = await analyticsAPI.getAIAnalysis(params) as any;
+
+    if (response && typeof response === 'object') {
+      analysis.value = {
+        strengths: Array.isArray(response.strengths) ? response.strengths : [],
+        improvements: Array.isArray(response.improvements) ? response.improvements : [],
+        suggestions: Array.isArray(response.suggestions) ? response.suggestions : [],
+        timestamp: response.timestamp || new Date().toISOString()
+      };
+      console.log('获取AI分析成功:', response);
+    } else {
+      analysis.value = null;
+    }
+  } catch (error: any) {
+    console.error('获取AI分析建议失败:', error);
+    errorMessage.value = error?.response?.data?.error || '学习建议接口暂时不可用';
+    analysis.value = null;
   } finally {
     loading.value = false;
   }
 }
 
-// 使用模拟数据的辅助函数
-function useMockData() {
-  // 模拟数据
-  analysis.value = {
-    strengths: [
-      "在数据结构与算法课程中表现出色，完成度达到85%",
-      "学习时间分配合理，每周保持稳定学习习惯",
-      "编程基础知识点掌握牢固，测验正确率高"
-    ],
-    improvements: [
-      "网络原理部分知识点掌握不足，建议加强学习",
-      "学习时间集中在工作日，周末学习时间较少",
-      "部分复杂算法题目完成率较低"
-    ],
-    suggestions: [
-      "建议关注网络原理中的TCP/IP协议栈相关知识",
-      "可以尝试每周安排固定时间复习之前学过的内容",
-      "推荐参与更多实践项目，将理论知识应用到实际问题中",
-      "建议查看推荐的补充学习资源，加深对弱势知识点的理解"
-    ],
-    timestamp: new Date().toISOString()
-  };
-}
-
 onMounted(() => {
-  // 初始加载时生成分析
-  generateAnalysis();
+  void generateAnalysis();
 });
-</script> 
+
+watch(
+  () => [props.userId, props.courseId],
+  () => {
+    void generateAnalysis();
+  }
+);
+</script>

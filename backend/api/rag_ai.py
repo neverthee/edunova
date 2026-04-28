@@ -1129,7 +1129,7 @@ def _extract_first_json_object(text: str) -> Optional[Dict[str, Any]]:
         return None
     return None
 
-LESSON_PLAN_CORE_FALLBACK_SYSTEM_PROMPT = """You are EduNova teaching assistant.
+LESSON_PLAN_CORE_FALLBACK_SYSTEM_PROMPT = """You are 易度新星 EduNova teaching assistant.
 Generate exactly one JSON object and do not output markdown fences or explanations.
 The JSON must contain exactly these top-level keys:
 - lesson_identity
@@ -1186,7 +1186,7 @@ LESSON_PLAN_CORE_FALLBACK_USER_PROMPT = """请根据课程信息、需求摘要�
 9. knowledge_point 非空时，相关知识点必须在教学流程、活动设计或评价任务中被明确展开。
 10. 如果资料不足，可以结合课程主题、章节信息和教学目标做合理教学补全，但要保持像真实教师备课内容。"""
 
-LESSON_PLAN_DOCX_FALLBACK_SYSTEM_PROMPT = """You are EduNova teaching assistant.
+LESSON_PLAN_DOCX_FALLBACK_SYSTEM_PROMPT = """You are 易度新星 EduNova teaching assistant.
 Generate exactly one JSON object with a single top-level key: docx_outline.
 docx_outline must be an array of objects with keys section_title, section_goal, bullets, source_refs.
 Requirements:
@@ -1229,7 +1229,7 @@ LESSON_PLAN_DOCX_FALLBACK_USER_PROMPT = """请基于核心教学 spec 和资料�
 11. 资料证据中的每个 source_notes/source_contract 都至少要在一个 section 的 source_refs 中出现一次。
 12. required=true 的资料不能只挂引用名，必须在 bullets 中体现其知识点或使用方式。"""
 
-LESSON_PLAN_PPT_FALLBACK_SYSTEM_PROMPT = """You are EduNova teaching assistant.
+LESSON_PLAN_PPT_FALLBACK_SYSTEM_PROMPT = """You are 易度新星 EduNova teaching assistant.
 Generate exactly one JSON object with a single top-level key: ppt_outline.
 ppt_outline must be an array of objects with keys slide_type, title, goal, bullets, visual_suggestion, source_refs.
 Requirements:
@@ -1264,7 +1264,7 @@ LESSON_PLAN_PPT_FALLBACK_USER_PROMPT = """请基于核心教学 spec 和资料�
 6. 资料证据中的每个 source_notes/source_contract 都至少要在一个 slide 的 source_refs 中出现一次。
 7. required=true 或 usage=image_asset 的资料，必须在对应 slide 的 bullets 或 visual_suggestion 中明确体现。"""
 
-LESSON_PLAN_REVISION_FALLBACK_SYSTEM_PROMPT = """You are EduNova teaching assistant.
+LESSON_PLAN_REVISION_FALLBACK_SYSTEM_PROMPT = """You are 易度新星 EduNova teaching assistant.
 Revise the provided core teaching spec incrementally according to the revision request.
 Return exactly one JSON object with the same top-level schema as the existing core teaching spec.
 Do not output markdown or explanations."""
@@ -1349,12 +1349,23 @@ def normalize_requirement_summary(raw: Dict[str, Any], form_snapshot: Dict[str, 
     key_points = str(form_snapshot.get("keyPoints", "") or "").strip()
     duration = str(form_snapshot.get("duration", "") or "").strip()
     style = str(form_snapshot.get("teachingStyle", "") or "").strip()
+    free_teaching_idea = str(form_snapshot.get("freeTeachingIdea", "") or "").strip()
+    hints = _extract_requirement_hints_from_text(free_teaching_idea)
+    inferred_duration = _extract_duration_from_text(
+        "\n".join([
+            str(raw.get("duration") or "").strip(),
+            duration,
+            free_teaching_idea,
+        ])
+    )
+    raw_goals = raw.get("teaching_goals") if isinstance(raw.get("teaching_goals"), list) else []
+    raw_knowledge = raw.get("knowledge_points") if isinstance(raw.get("knowledge_points"), list) else []
 
     summary = {
-        "teaching_goals": raw.get("teaching_goals") if isinstance(raw.get("teaching_goals"), list) else [],
-        "knowledge_points": raw.get("knowledge_points") if isinstance(raw.get("knowledge_points"), list) else [],
-        "duration": str(raw.get("duration") or duration or ""),
-        "style": str(raw.get("style") or style or ""),
+        "teaching_goals": _dedupe_non_empty_str_list([*raw_goals, *hints.get("teaching_goals", [])]),
+        "knowledge_points": _dedupe_non_empty_str_list([*raw_knowledge, *hints.get("knowledge_points", [])]),
+        "duration": inferred_duration or str(raw.get("duration") or duration or ""),
+        "style": str(raw.get("style") or style or hints.get("teaching_style") or ""),
         "output_targets": raw.get("output_targets") if isinstance(raw.get("output_targets"), list) else []
     }
 
@@ -1367,6 +1378,240 @@ def normalize_requirement_summary(raw: Dict[str, Any], form_snapshot: Dict[str, 
         summary["output_targets"] = ["课程总纲"] if outline_type == "course" else ["课堂教案"]
 
     return summary
+
+def _normalize_number_token(token: str) -> Optional[float]:
+    clean_token = str(token or "").strip().replace("个", "")
+    if not clean_token:
+        return None
+    try:
+        return float(clean_token)
+    except (TypeError, ValueError):
+        pass
+
+    mapping = {
+        "半": 0.5,
+        "一": 1,
+        "二": 2,
+        "两": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+        "十": 10,
+    }
+    if clean_token in mapping:
+        return float(mapping[clean_token])
+    if clean_token.endswith("半") and len(clean_token) >= 2:
+        prefix = _normalize_number_token(clean_token[:-1])
+        if prefix is not None:
+            return prefix + 0.5
+    if clean_token.startswith("十"):
+        suffix = clean_token[1:]
+        suffix_value = _normalize_number_token(suffix) if suffix else 0
+        if suffix_value is not None:
+            return 10 + suffix_value
+    if clean_token.endswith("十"):
+        prefix = _normalize_number_token(clean_token[:-1])
+        if prefix is not None:
+            return prefix * 10
+    if "十" in clean_token:
+        parts = clean_token.split("十", 1)
+        left = _normalize_number_token(parts[0]) if parts[0] else 1
+        right = _normalize_number_token(parts[1]) if parts[1] else 0
+        if left is not None and right is not None:
+            return left * 10 + right
+    return None
+
+def _format_duration_minutes(minutes: float) -> str:
+    rounded = int(round(minutes))
+    if rounded <= 0:
+        return ""
+    return f"{rounded}分钟"
+
+def _extract_duration_from_text(text: str) -> str:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return ""
+
+    hour_match = re.search(r'([0-9]+(?:\.[0-9]+)?|[一二两三四五六七八九十半个]+)\s*小时', normalized, re.IGNORECASE)
+    if hour_match:
+        value = _normalize_number_token(hour_match.group(1))
+        if value is not None:
+            return _format_duration_minutes(value * 60)
+
+    minute_match = re.search(r'([0-9]+(?:\.[0-9]+)?|[一二两三四五六七八九十半个]+)\s*分钟', normalized, re.IGNORECASE)
+    if minute_match:
+        value = _normalize_number_token(minute_match.group(1))
+        if value is not None:
+            return _format_duration_minutes(value)
+
+    period_match = re.search(r'([0-9]+(?:\.[0-9]+)?|[一二两三四五六七八九十半个]+)\s*课时', normalized, re.IGNORECASE)
+    if period_match:
+        value = _normalize_number_token(period_match.group(1))
+        if value is not None:
+            if abs(value - round(value)) < 1e-6:
+                return f"{int(round(value))}课时"
+            return f"{value}课时"
+
+    lesson_match = re.search(r'([0-9]+(?:\.[0-9]+)?|[一二两三四五六七八九十半个]+)\s*(?:节|堂)课', normalized, re.IGNORECASE)
+    if lesson_match:
+        value = _normalize_number_token(lesson_match.group(1))
+        if value is not None:
+            if abs(value - round(value)) < 1e-6:
+                return f"{int(round(value))}节课"
+            return f"{value}节课"
+
+    return ""
+
+def _extract_clause_after_keyword(text: str, keywords: List[str]) -> str:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return ""
+    for keyword in keywords:
+        pattern = rf'{re.escape(keyword)}(?:\s*(?:[:：]|是|为|有|包括|包含|在于))?\s*([^。\n；;！？!?]+)'
+        match = re.search(pattern, normalized, re.IGNORECASE)
+        if match:
+            return str(match.group(1) or "").strip(" ，,；;。！!？?")
+    return ""
+
+def _extract_list_after_keyword(text: str, keywords: List[str]) -> List[str]:
+    clause = _extract_clause_after_keyword(text, keywords)
+    if not clause:
+        return []
+    return _normalize_text_list(clause)
+
+def _extract_teaching_goals_from_text(text: str) -> List[str]:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return []
+
+    goals = _extract_list_after_keyword(
+        normalized,
+        ["教学目标", "学习目标", "本节课目标", "这节课目标", "目标"],
+    )
+    if goals:
+        goals = [
+            item for item in goals
+            if (
+                any(marker in item for marker in ["让学生", "掌握", "理解", "学会", "认识", "能够", "会"])
+                and not any(marker in item for marker in ["知识点", "难点", "学生基础", "学情", "采用", "教学风格"])
+            )
+        ]
+        if goals:
+            return goals[:4]
+
+    sentence_candidates = re.split(r"[。！？!?；;\n]+", normalized)
+    extracted: List[str] = []
+    for sentence in sentence_candidates:
+        candidate = sentence.strip(" ，,；;。")
+        if not candidate:
+            continue
+        if any(marker in candidate for marker in ["让学生", "学生能够", "学生可以", "希望学生", "帮助学生"]):
+            extracted.append(candidate)
+            continue
+        if any(marker in candidate for marker in ["掌握", "理解", "学会", "认识", "能够"]) and len(candidate) <= 40:
+            extracted.append(candidate)
+    return _dedupe_non_empty_str_list(extracted[:4])
+
+def _extract_teaching_style_from_text(text: str) -> str:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return ""
+
+    explicit = _extract_clause_after_keyword(normalized, ["教学风格", "授课风格", "课堂风格", "上课方式"])
+    if explicit:
+        for option in ["讲授型", "探究式", "项目式", "合作学习", "翻转课堂"]:
+            if option in explicit:
+                return option
+
+    style_rules = [
+        ("翻转课堂", ["翻转课堂", "课前自学", "先学后教"]),
+        ("项目式", ["项目式", "项目学习", "任务驱动"]),
+        ("合作学习", ["合作学习", "小组合作", "合作探究"]),
+        ("探究式", ["探究式", "探究", "启发式", "问题驱动"]),
+        ("讲授型", ["讲授", "讲解为主", "老师讲", "系统讲解"]),
+    ]
+    for label, keywords in style_rules:
+        if any(keyword in normalized for keyword in keywords):
+            return label
+    return ""
+
+def _extract_student_foundation_from_text(text: str) -> str:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return ""
+
+    if any(keyword in normalized for keyword in ["基础薄弱", "底子薄", "跟不上", "较弱"]):
+        return "基础薄弱"
+    if any(keyword in normalized for keyword in ["中等水平", "基础一般", "一般水平"]):
+        return "中等水平"
+    if any(keyword in normalized for keyword in ["基础较好", "较高水平", "能力较强", "拔高"]):
+        return "较高水平"
+
+    return _extract_clause_after_keyword(normalized, ["学生基础", "学情", "学生情况", "基础情况"])
+
+def _extract_activity_options_from_text(text: str) -> List[str]:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return []
+
+    activity_rules = [
+        ("小组讨论", ["小组讨论", "分组讨论", "讨论"]),
+        ("实验", ["实验", "动手操作"]),
+        ("角色扮演", ["角色扮演", "情景扮演"]),
+        ("游戏辩论", ["游戏辩论", "辩论", "游戏"]),
+        ("演讲", ["演讲", "展示汇报", "上台展示"]),
+        ("练习测验", ["练习", "测验", "随堂练", "随堂测", "习题"]),
+    ]
+    extracted: List[str] = []
+    for label, keywords in activity_rules:
+        if any(keyword in normalized for keyword in keywords):
+            extracted.append(label)
+    return _dedupe_non_empty_str_list(extracted)
+
+def _extract_difficult_points_from_text(text: str) -> List[str]:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return []
+    points = _extract_list_after_keyword(normalized, ["难点", "重点难点", "教学难点", "学生易错点"])
+    points = [
+        item for item in points
+        if not any(marker in item for marker in ["学生基础", "学情", "采用", "小组讨论", "练习测验"])
+    ]
+    return points[:6]
+
+def _extract_knowledge_points_from_text(text: str) -> List[str]:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return []
+
+    for keywords in [
+        ["知识点", "核心知识", "重点", "教学重点", "讲解重点"],
+        ["内容包括", "主要内容", "围绕", "讲到"],
+    ]:
+        points = _extract_list_after_keyword(normalized, keywords)
+        filtered = [
+            item for item in points
+            if len(item) <= 30 and not any(marker in item for marker in ["难点", "学生基础", "学情", "采用", "探究式", "讲授型", "项目式", "合作学习", "翻转课堂", "讨论", "练习", "测验", "展示", "实验"])
+        ]
+        if filtered:
+            return filtered[:6]
+    return []
+
+def _extract_requirement_hints_from_text(text: str) -> Dict[str, Any]:
+    normalized = str(text or "").strip()
+    return {
+        "duration": _extract_duration_from_text(normalized),
+        "teaching_goals": _extract_teaching_goals_from_text(normalized),
+        "knowledge_points": _extract_knowledge_points_from_text(normalized),
+        "difficult_points": _extract_difficult_points_from_text(normalized),
+        "teaching_style": _extract_teaching_style_from_text(normalized),
+        "student_foundation": _extract_student_foundation_from_text(normalized),
+        "activities": _extract_activity_options_from_text(normalized),
+    }
 
 def _dedupe_non_empty_str_list(items: List[str]) -> List[str]:
     """Deduplicate while keeping order and dropping empty strings."""
@@ -1398,6 +1643,11 @@ def normalize_structured_requirement(raw: Dict[str, Any], form_snapshot: Dict[st
     teaching_style = str(form_snapshot.get("teachingStyle", "") or "").strip()
     outline_type = str(form_snapshot.get("outlineType", "") or "").strip().lower()
     activities = form_snapshot.get("activities", []) if isinstance(form_snapshot.get("activities"), list) else []
+    free_teaching_idea = str(form_snapshot.get("freeTeachingIdea", "") or "").strip()
+    hints = _extract_requirement_hints_from_text(free_teaching_idea)
+    inferred_key_points = hints.get("knowledge_points", [])
+    inferred_difficult_points = hints.get("difficult_points", [])
+    inferred_activities = hints.get("activities", [])
 
     topic = str(raw.get("topic") or "").strip()
     if not topic:
@@ -1406,14 +1656,20 @@ def normalize_structured_requirement(raw: Dict[str, Any], form_snapshot: Dict[st
     knowledge_points = _normalize_text_list(raw.get("knowledge_points"))
     if not knowledge_points and key_points_text:
         knowledge_points = _normalize_text_list(key_points_text)
+    if not knowledge_points and inferred_key_points:
+        knowledge_points = inferred_key_points
 
     key_points = _normalize_text_list(raw.get("key_points"))
     if not key_points and key_points_text:
         key_points = _normalize_text_list(key_points_text)
+    if not key_points and inferred_key_points:
+        key_points = inferred_key_points
 
     difficult_points = _normalize_text_list(raw.get("difficult_points"))
     if not difficult_points and key_points_text:
         difficult_points = [item for item in _normalize_text_list(key_points_text) if "难" in item]
+    if not difficult_points and inferred_difficult_points:
+        difficult_points = inferred_difficult_points
 
     raw_flow = raw.get("teaching_flow")
     teaching_flow: List[Dict[str, Any]] = []
@@ -1448,7 +1704,7 @@ def normalize_structured_requirement(raw: Dict[str, Any], form_snapshot: Dict[st
             ("核心知识讲解与示例", "建立关键概念与解题路径"),
             ("练习反馈与总结", "巩固知识点并完成迁移应用")
         ]
-        if activities:
+        if activities or inferred_activities:
             default_titles[2] = ("课堂活动与总结", "通过活动完成应用并总结反思")
         for idx, (title, goal) in enumerate(default_titles):
             teaching_flow.append({"step": idx + 1, "title": title, "goal": goal})
@@ -1456,28 +1712,28 @@ def normalize_structured_requirement(raw: Dict[str, Any], form_snapshot: Dict[st
     raw_profile = raw.get("student_profile") if isinstance(raw.get("student_profile"), dict) else {}
     student_profile = {
         "grade": str(raw_profile.get("grade") or grade_subject or "").strip(),
-        "foundation": str(raw_profile.get("foundation") or student_level or "").strip(),
+        "foundation": str(raw_profile.get("foundation") or student_level or hints.get("student_foundation") or "").strip(),
         "learning_preference": str(raw_profile.get("learning_preference") or "").strip()
     }
     if not student_profile["learning_preference"]:
-        student_profile["learning_preference"] = "案例驱动" if activities else "讲练结合"
+        student_profile["learning_preference"] = "案例驱动" if (activities or inferred_activities) else "讲练结合"
 
     raw_style = raw.get("style")
     if isinstance(raw_style, dict):
         style_obj = {
-            "teaching_style": str(raw_style.get("teaching_style") or teaching_style or "").strip(),
+            "teaching_style": str(raw_style.get("teaching_style") or teaching_style or hints.get("teaching_style") or "").strip(),
             "interaction_level": str(raw_style.get("interaction_level") or "").strip(),
             "output_preference": str(raw_style.get("output_preference") or "").strip()
         }
     else:
         style_obj = {
-            "teaching_style": str(raw_style or teaching_style or "").strip(),
+            "teaching_style": str(raw_style or teaching_style or hints.get("teaching_style") or "").strip(),
             "interaction_level": "",
             "output_preference": ""
         }
 
     if not style_obj["interaction_level"]:
-        style_obj["interaction_level"] = "中互动"
+        style_obj["interaction_level"] = "高互动" if len(inferred_activities) >= 2 else ("中互动" if inferred_activities else "低互动")
     if not style_obj["output_preference"]:
         style_obj["output_preference"] = "课程总纲" if outline_type == "course" else "课堂教案"
 
@@ -3671,7 +3927,7 @@ def _request_game_pack_from_model(
     game_plan = normalized_spec.get("game_plan") if isinstance(normalized_spec.get("game_plan"), dict) else {}
     source_notes = normalized_spec.get("source_notes") if isinstance(normalized_spec.get("source_notes"), list) else []
 
-    system_prompt = """You are EduNova game content designer.
+    system_prompt = """You are 易度新星 EduNova game content designer.
 Generate exactly one JSON object for an offline single-file classroom game.
 Do not output markdown fences or explanations.
 
@@ -4929,7 +5185,7 @@ def chat_with_ai():
                         )
 
                         # 构建带有上下文的系统提示
-                        system_prompt = f"""浣犳槸涓€涓櫤鑳芥暀鑲插姪鎵嬶紝鍚嶄负EduNova銆備綘鐨勪换鍔℃槸甯姪瀛︾敓瑙ｇ瓟闂銆佹彁渚涘涔犲缓璁拰瑙ｉ噴澶嶆潅姒傚康銆?
+                        system_prompt = f"""浣犳槸涓€涓櫤鑳芥暀鑲插姪鎵嬶紝鍚嶄负易度新星 EduNova銆備綘鐨勪换鍔℃槸甯姪瀛︾敓瑙ｇ瓟闂銆佹彁渚涘涔犲缓璁拰瑙ｉ噴澶嶆潅姒傚康銆?
 浣犳鍦ㄨ緟鍔╀互涓嬭绋嬬殑瀛︿範锛?
 {course_info}
 {course_context_prompt}
@@ -4972,7 +5228,7 @@ def chat_with_ai():
                         context = structured_context
                         sources = structured_sources
                         context_mode = structured_mode or "structured_index"
-                        system_prompt = f"""浣犳槸涓€涓櫤鑳芥暀鑲插姪鎵嬶紝鍚嶄负EduNova銆備綘鐨勪换鍔℃槸甯姪瀛︾敓瑙ｇ瓟闂銆佹彁渚涘涔犲缓璁拰瑙ｉ噴澶嶆潅姒傚康銆?
+                        system_prompt = f"""浣犳槸涓€涓櫤鑳芥暀鑲插姪鎵嬶紝鍚嶄负易度新星 EduNova銆備綘鐨勪换鍔℃槸甯姪瀛︾敓瑙ｇ瓟闂銆佹彁渚涘涔犲缓璁拰瑙ｉ噴澶嶆潅姒傚康銆?
 浣犳鍦ㄨ緟鍔╀互涓嬭绋嬬殑瀛︿範锛?
 {course_info}
 {course_context_prompt}
@@ -5016,7 +5272,7 @@ def chat_with_ai():
                     {
                         "role": "system",
                         "content": (
-                            "你是 EduNova 智能学习助手，回答时优先结合当前会话中的课程上下文。"
+                            "你是 易度新星 EduNova 智能学习助手，回答时优先结合当前会话中的课程上下文。"
                             f"{course_context_prompt}"
                             + (
                                 f"\n当前课程信息：\n{course_info}\n"

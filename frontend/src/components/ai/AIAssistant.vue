@@ -145,7 +145,7 @@
               <img src="@/assets/images/atom.png" alt="AI" class="h-full w-full object-cover" />
             </div>
             <div class="ml-3 pl-2 max-w-[80%]">
-              <p class="text-gray-800 font-medium">你好！我是智能学习助手。有什么可以帮助你的吗？</p>
+              <p class="text-gray-800 font-medium">你好！我是易度新星 EduNova 智能学习助手。有什么可以帮助你的吗？</p>
             </div>
           </div>
           
@@ -1003,14 +1003,14 @@ function updateWelcomeMessage() {
   
   let welcomeMessage = '';
   if (chatMode.value === 'general') {
-    welcomeMessage = '你好！我是智能学习助手。有什么可以帮助你的吗？';
+    welcomeMessage = '你好！我是易度新星 EduNova 智能学习助手。有什么可以帮助你的吗？';
   } else {
     if (selectedCourseId.value) {
       const course = courses.value.find(c => c.id == selectedCourseId.value);
       const courseName = course ? course.name : `课程 #${selectedCourseId.value}`;
-      welcomeMessage = `你好！我是智能学习助手。我已连接到"${courseName}"。我将基于课程的知识库回答，请随时提问！`;
+      welcomeMessage = `你好！我是易度新星 EduNova 智能学习助手。我已连接到"${courseName}"。我将基于课程的知识库回答，请随时提问！`;
     } else {
-      welcomeMessage = '你好！我是智能学习助手。请选择课程以启用知识库增强功能。';
+      welcomeMessage = '你好！我是易度新星 EduNova 智能学习助手。请选择课程以启用知识库增强功能。';
     }
   }
   

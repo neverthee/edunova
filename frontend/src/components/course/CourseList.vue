@@ -125,11 +125,21 @@
             >
               课程详情
             </router-link>
+            <button
+              v-if="userRole === 'student' && !course.is_enrolled"
+              type="button"
+              @click="enrollInCourse(course)"
+              :disabled="enrollingCourseId === course.id"
+              class="flex items-center justify-center px-4 py-2.5 rounded-xl bg-blue-600 text-sm font-semibold text-white hover:bg-blue-700 shadow-sm shadow-blue-200 transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-blue-300"
+            >
+              {{ enrollingCourseId === course.id ? '加入中...' : '加入课程' }}
+            </button>
             <router-link 
+              v-else
               :to="{ name: 'learning', params: { courseId: course.id } }" 
               class="flex items-center justify-center px-4 py-2.5 rounded-xl bg-blue-600 text-sm font-semibold text-white hover:bg-blue-700 shadow-sm shadow-blue-200 transition-all active:scale-[0.98]"
             >
-              立即学习
+              {{ userRole === 'student' ? '继续学习' : '立即学习' }}
             </router-link>
           </div>
 
@@ -279,6 +289,7 @@ interface Course {
   teacher_name?: string;
   student_count?: number;
   is_public?: boolean;
+  is_enrolled?: boolean;
   cover_image?: string;
   created_at?: string;
   updated_at?: string;
@@ -291,6 +302,7 @@ const defaultCategoryOptions = ['计算机科学', '数学', '语言', '自然�
 
 const courses = ref<Course[]>([]);
 const loading = ref(true);
+const enrollingCourseId = ref<number | null>(null);
 const currentPage = ref(1);
 const totalPages = ref(1);
 const showCreateModal = ref(false);
@@ -392,6 +404,25 @@ async function fetchCourses() {
   } catch (error) {
     console.error('获取课程失败:', error);
     loading.value = false;
+  }
+}
+
+async function enrollInCourse(course: Course) {
+  if (enrollingCourseId.value !== null) {
+    return;
+  }
+
+  enrollingCourseId.value = course.id;
+  try {
+    await courseAPI.enrollCourse(course.id);
+    course.is_enrolled = true;
+    course.student_count = Number(course.student_count || 0) + 1;
+    notificationService.success('加入课程成功', `已加入 "${course.name}"，现在可以在“我的课程”中继续学习`);
+  } catch (error) {
+    console.error('加入课程失败:', error);
+    notificationService.error('加入课程失败', '当前课程暂时无法加入，请稍后重试');
+  } finally {
+    enrollingCourseId.value = null;
   }
 }
 

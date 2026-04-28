@@ -206,6 +206,8 @@ export const courseAPI = {
 
 export const teacherClassAPI = {
   getClasses: () => api.get('/teacher-classes'),
+  getAvailableStudents: (classId: number, params?: { search?: string }) =>
+    api.get(`/teacher-classes/${classId}/available-students`, { params }),
   createClass: (data: { name: string; description?: string; student_ids?: number[] }) =>
     api.post('/teacher-classes', data),
   updateClass: (classId: number, data: { name?: string; description?: string; student_ids?: number[] }) =>

@@ -11,7 +11,13 @@
     <div v-else-if="user" class="profile-card">
       <div class="profile-header">
         <div class="avatar-container" @click="isEditing && openAvatarUpload()">
-          <img v-if="previewAvatar || user.avatar_url" :src="previewAvatar || (user.avatar_url ? `${apiOrigin}${user.avatar_url}` : '')" alt="头像" class="avatar" />
+          <img
+            v-if="displayAvatarSrc"
+            :src="displayAvatarSrc"
+            alt="头像"
+            class="avatar"
+            @error="handleAvatarLoadError"
+          />
           <div v-else class="avatar-placeholder">{{ user.username?.charAt(0).toUpperCase() }}</div>
           <div v-if="isEditing" class="avatar-edit-overlay">
             <span>点击更换头像</span>
@@ -170,7 +176,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue';
+import { ref, reactive, onMounted, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import * as authAPI from '@/api/auth';
@@ -191,9 +197,20 @@ const showPasswordModal = ref(false);
 const previewAvatar = ref('');
 const passwordError = ref('');
 const selectedFile = ref<File | null>(null);
+const avatarLoadFailed = ref(false);
 
 // 用户数据
 const user = computed(() => authStore.user);
+const displayAvatarSrc = computed(() => {
+  if (previewAvatar.value) {
+    return previewAvatar.value;
+  }
+  const avatarUrl = String(user.value?.avatar_url || '').trim();
+  if (!avatarUrl || avatarLoadFailed.value) {
+    return '';
+  }
+  return `${apiOrigin}${avatarUrl}`;
+});
 
 // 编辑表单
 const editForm = reactive({
@@ -245,6 +262,10 @@ const startEditing = () => {
 const cancelEditing = () => {
   isEditing.value = false;
   previewAvatar.value = '';
+};
+
+const handleAvatarLoadError = () => {
+  avatarLoadFailed.value = true;
 };
 
 // 保存个人资料
@@ -413,6 +434,14 @@ onMounted(async () => {
     loading.value = false;
   }
 });
+
+watch(
+  () => [user.value?.avatar_url, previewAvatar.value],
+  () => {
+    avatarLoadFailed.value = false;
+  },
+  { immediate: true }
+);
 </script>
 
 <style scoped>

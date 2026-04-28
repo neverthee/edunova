@@ -20,7 +20,7 @@
                 <div class="rounded-md shadow">
                   <router-link
                     v-if="!authStore.isAuthenticated"
-                    to="/register"
+                    to="/start"
                     class="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 md:py-4 md:text-lg md:px-10 transition-colors duration-200"
                   >
                     立即开始
@@ -31,15 +31,6 @@
                     class="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 md:py-4 md:text-lg md:px-10 transition-colors duration-200"
                   >
                     进入系统
-                  </router-link>
-                </div>
-                <div class="mt-3 sm:mt-0 sm:ml-3">
-                  <router-link
-                    v-if="!authStore.isAuthenticated"
-                    to="/login"
-                    class="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-primary-700 bg-primary-100 hover:bg-primary-200 md:py-4 md:text-lg md:px-10 transition-colors duration-200"
-                  >
-                    登录
                   </router-link>
                 </div>
               </div>
@@ -174,10 +165,10 @@
           <div class="inline-flex rounded-md shadow">
             <router-link
               v-if="!authStore.isAuthenticated"
-              to="/register"
+              to="/start"
               class="inline-flex items-center justify-center px-5 py-3 border border-transparent text-base font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 transition-colors duration-200"
             >
-              免费注册
+              立即开始
             </router-link>
             <router-link
               v-else
@@ -206,4 +197,3 @@ const getDashboardRoute = () => {
   return '/dashboard'
 }
 </script>
-

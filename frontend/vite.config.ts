@@ -37,10 +37,6 @@ export default defineConfig(async () => {
           changeOrigin: true
         }
       }
-    },
-    define: {
-      // 定义全局环境变量
-      'import.meta.env.VITE_API_BASE_URL': JSON.stringify('http://localhost:5001')
     }
   }
 })

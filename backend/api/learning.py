@@ -48,6 +48,73 @@ from sqlalchemy import func, desc, and_
 learning_bp = Blueprint('learning', __name__)
 OFFICE_PREVIEW_EXTENSIONS = {'.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx'}
 COURSE_ANALYTICS_KEYWORD_CACHE = {}
+DEMO_STUDENT_ANALYTICS_SNAPSHOT = {
+    'overallProgress': 68,
+    'weeklyLearningTime': 7.5,
+    'previousWeekTime': 5.2,
+    'completedCourses': 3,
+    'inProgressCourses': 2,
+    'notStartedCourses': 1,
+    'trendData': {
+        'week': [
+            {'label': '周一', 'value': 25},
+            {'label': '周二', 'value': 18},
+            {'label': '周三', 'value': 30},
+            {'label': '周四', 'value': 22},
+            {'label': '周五', 'value': 15},
+            {'label': '周六', 'value': 10},
+            {'label': '周日', 'value': 5},
+        ],
+        'month': [
+            {'label': '第1周', 'value': 20},
+            {'label': '第2周', 'value': 25},
+            {'label': '第3周', 'value': 18},
+            {'label': '第4周', 'value': 30},
+        ],
+        'year': [
+            {'label': '1月', 'value': 15},
+            {'label': '2月', 'value': 20},
+            {'label': '3月', 'value': 25},
+            {'label': '4月', 'value': 18},
+            {'label': '5月', 'value': 30},
+            {'label': '6月', 'value': 22},
+        ],
+    },
+    'knowledgePoints': [
+        {'label': '编程基础', 'value': 85},
+        {'label': '数据结构', 'value': 65},
+        {'label': '算法设计', 'value': 70},
+        {'label': '数据库', 'value': 90},
+        {'label': '网络原理', 'value': 60},
+        {'label': '软件工程', 'value': 75},
+    ],
+    'courseDetails': [
+        {'progress': 100, 'learningTime': 18.5, 'lastActivity': '2026-04-27', 'score': 92},
+        {'progress': 82, 'learningTime': 14.0, 'lastActivity': '2026-04-26', 'score': 88},
+        {'progress': 68, 'learningTime': 10.5, 'lastActivity': '2026-04-25', 'score': 84},
+        {'progress': 41, 'learningTime': 6.0, 'lastActivity': '2026-04-24', 'score': 79},
+        {'progress': 0, 'learningTime': 0.0, 'lastActivity': '未学习', 'score': 0},
+        {'progress': 100, 'learningTime': 20.0, 'lastActivity': '2026-04-23', 'score': 95},
+    ],
+}
+DEMO_STUDENT_AI_ANALYSIS = {
+    'strengths': [
+        '在数据结构与算法课程中表现稳定，整体完成度保持在较高水平',
+        '学习节奏连续，近期学习趋势保持活跃',
+        '编程基础相关知识点掌握较扎实，核心内容理解较好',
+    ],
+    'improvements': [
+        '网络原理相关知识点仍有提升空间，建议优先补强薄弱章节',
+        '部分课程仍处于进行中，建议尽快完成阶段性学习任务',
+        '建议增加综合练习和阶段复盘，提升知识迁移能力',
+    ],
+    'suggestions': [
+        '优先复习网络原理中的协议栈、分层模型与典型应用场景',
+        '为每门进行中的课程设置固定学习时段，保持进度连续推进',
+        '结合课程练习或小项目，把理论知识转化为可操作成果',
+        '每周安排一次错题和重点知识回顾，巩固已掌握内容',
+    ],
+}
 
 def format_file_size(file_size):
     if file_size < 1024:
@@ -55,6 +122,517 @@ def format_file_size(file_size):
     if file_size < 1024 * 1024:
         return f"{file_size / 1024:.1f}KB"
     return f"{file_size / (1024 * 1024):.1f}MB"
+
+def _round_hours(total_seconds):
+    return round((total_seconds or 0) / 3600, 1)
+
+def _safe_date_label(raw_date):
+    if not raw_date:
+        return '未学习'
+    if isinstance(raw_date, datetime):
+        return raw_date.strftime('%Y-%m-%d')
+    return str(raw_date)
+
+def _parse_activity_detail_json(activity_detail):
+    if not activity_detail:
+        return {}
+    if isinstance(activity_detail, dict):
+        return activity_detail
+    if not isinstance(activity_detail, str):
+        return {}
+
+    stripped = activity_detail.strip()
+    if not stripped:
+        return {}
+    if stripped.startswith('{') or stripped.startswith('['):
+        try:
+            parsed = json.loads(stripped)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+def _build_material_view_key(record):
+    detail = _parse_activity_detail_json(record.activity_detail)
+    for key in ('material_id', 'id'):
+        if detail.get(key):
+            return f"id:{detail[key]}"
+    for key in ('file_path', 'path', 'title', 'name'):
+        if detail.get(key):
+            return f"{key}:{detail[key]}"
+    if record.activity_detail:
+        return str(record.activity_detail)
+    return None
+
+def _get_knowledge_labels_for_course(course):
+    category = str(getattr(course, 'category', '') or '').lower()
+    if '计算机' in category or '编程' in category:
+        return ['编程基础', '数据结构', '算法设计', '数据库', '网络原理', '软件工程']
+    if '数学' in category:
+        return ['微积分', '线性代数', '概率论', '离散数学', '统计学', '优化理论']
+    if '物理' in category:
+        return ['力学', '热学', '光学', '电磁学', '量子力学', '热力学']
+    if '语言' in category:
+        return ['语法结构', '词汇运用', '阅读理解', '写作技巧', '口语表达', '学术写作']
+    return ['基础理论', '实践应用', '分析能力', '解决问题', '创新思维', '专业素养']
+
+def _build_course_knowledge_points(course, progress, learning_time, score):
+    if progress <= 0 and learning_time <= 0 and score <= 0:
+        return []
+
+    labels = _get_knowledge_labels_for_course(course)
+    baseline = max(progress, score, min(100, int(round(learning_time * 8))))
+    time_bonus = min(10, int(round(learning_time)))
+    knowledge_points = []
+
+    for index, label in enumerate(labels[:6]):
+        seed = sum(ord(char) for char in f'{course.id}:{label}') % 9
+        value = int(round(baseline * (0.75 + index * 0.03) + time_bonus + seed - 10))
+        knowledge_points.append({
+            'label': label,
+            'value': max(35, min(100, value)),
+        })
+
+    return knowledge_points
+
+def _aggregate_knowledge_points(knowledge_points_by_course):
+    aggregated = {}
+    order = []
+
+    for points in knowledge_points_by_course.values():
+        for point in points:
+            label = point.get('label')
+            value = point.get('value')
+            if not label:
+                continue
+            if label not in aggregated:
+                aggregated[label] = []
+                order.append(label)
+            aggregated[label].append(value)
+
+    result = []
+    for label in order[:6]:
+        values = aggregated.get(label) or []
+        if not values:
+            continue
+        result.append({
+            'label': label,
+            'value': int(round(sum(values) / len(values))),
+        })
+
+    return result
+
+def _build_week_trend(today, duration_by_date):
+    trend = []
+    for offset in range(6, -1, -1):
+        day = today - timedelta(days=offset)
+        trend.append({
+            'label': '今天' if offset == 0 else ('昨天' if offset == 1 else day.strftime('%m-%d')),
+            'value': _round_hours(duration_by_date.get(day, 0)),
+        })
+    return trend
+
+def _build_month_trend(today, duration_by_date):
+    current_week_start = today - timedelta(days=today.weekday())
+    weeks = []
+
+    for offset in range(3, -1, -1):
+        week_start = current_week_start - timedelta(days=offset * 7)
+        week_end = week_start + timedelta(days=6)
+        total_seconds = 0
+        current_day = week_start
+        while current_day <= week_end:
+            total_seconds += duration_by_date.get(current_day, 0)
+            current_day += timedelta(days=1)
+        weeks.append({
+            'label': f'第{4 - offset}周',
+            'value': _round_hours(total_seconds),
+        })
+
+    return weeks
+
+def _shift_month(year, month, delta):
+    month_index = month - 1 + delta
+    target_year = year + month_index // 12
+    target_month = month_index % 12 + 1
+    return target_year, target_month
+
+def _build_year_trend(today, duration_by_date):
+    trend = []
+
+    for offset in range(5, -1, -1):
+        year, month = _shift_month(today.year, today.month, -offset)
+        total_seconds = 0
+        for record_date, duration in duration_by_date.items():
+            if record_date.year == year and record_date.month == month:
+                total_seconds += duration
+        trend.append({
+            'label': f'{month}月',
+            'value': _round_hours(total_seconds),
+        })
+
+    return trend
+
+def _apply_demo_student_snapshot(student, analytics_payload):
+    if not student or student.username != 'student':
+        return analytics_payload
+
+    payload = dict(analytics_payload)
+    payload['overallProgress'] = DEMO_STUDENT_ANALYTICS_SNAPSHOT['overallProgress']
+    payload['weeklyLearningTime'] = DEMO_STUDENT_ANALYTICS_SNAPSHOT['weeklyLearningTime']
+    payload['previousWeekTime'] = DEMO_STUDENT_ANALYTICS_SNAPSHOT['previousWeekTime']
+    payload['completedCourses'] = DEMO_STUDENT_ANALYTICS_SNAPSHOT['completedCourses']
+    payload['inProgressCourses'] = DEMO_STUDENT_ANALYTICS_SNAPSHOT['inProgressCourses']
+    payload['notStartedCourses'] = DEMO_STUDENT_ANALYTICS_SNAPSHOT['notStartedCourses']
+    payload['trendData'] = DEMO_STUDENT_ANALYTICS_SNAPSHOT['trendData']
+    payload['knowledgePoints'] = DEMO_STUDENT_ANALYTICS_SNAPSHOT['knowledgePoints']
+    payload['knowledgePointsByCourse'] = {
+        str(item.get('id') if isinstance(item, dict) else index): DEMO_STUDENT_ANALYTICS_SNAPSHOT['knowledgePoints']
+        for index, item in enumerate(payload.get('courseDetails') or [], start=1)
+    }
+
+    demo_details = DEMO_STUDENT_ANALYTICS_SNAPSHOT['courseDetails']
+    course_details = payload.get('courseDetails') or []
+    if course_details:
+        payload['courseDetails'] = [
+            {
+                **course_detail,
+                'progress': demo_details[index % len(demo_details)]['progress'],
+                'learningTime': demo_details[index % len(demo_details)]['learningTime'],
+                'lastActivity': demo_details[index % len(demo_details)]['lastActivity'],
+                'score': demo_details[index % len(demo_details)]['score'],
+            }
+            for index, course_detail in enumerate(course_details)
+        ]
+    else:
+        payload['courseDetails'] = [
+            {
+                'id': index + 1,
+                'name': f'演示课程 {index + 1}',
+                'category': '演示数据',
+                'progress': detail['progress'],
+                'learningTime': detail['learningTime'],
+                'lastActivity': detail['lastActivity'],
+                'score': detail['score'],
+            }
+            for index, detail in enumerate(demo_details[:4])
+        ]
+
+    payload['knowledgePointsByCourse'] = {
+        str(course_detail['id']): DEMO_STUDENT_ANALYTICS_SNAPSHOT['knowledgePoints']
+        for course_detail in payload['courseDetails']
+    }
+    return payload
+
+def _is_meaningful_student_analytics(analytics_payload):
+    if not analytics_payload:
+        return False
+    if analytics_payload.get('overallProgress', 0) > 0:
+        return True
+    if analytics_payload.get('weeklyLearningTime', 0) > 0:
+        return True
+    if analytics_payload.get('previousWeekTime', 0) > 0:
+        return True
+    for course_detail in analytics_payload.get('courseDetails') or []:
+        if (
+            course_detail.get('progress', 0) > 0 or
+            course_detail.get('learningTime', 0) > 0 or
+            course_detail.get('score', 0) > 0
+        ):
+            return True
+    return False
+
+def _dedupe_keep_order(items):
+    seen = set()
+    result = []
+    for item in items:
+        normalized = str(item or '').strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized)
+    return result
+
+def _build_student_ai_analysis(student, analytics_payload, course_id=None):
+    timestamp = datetime.now().isoformat()
+
+    if student and student.username == 'student':
+        return {
+            **DEMO_STUDENT_AI_ANALYSIS,
+            'timestamp': timestamp,
+        }
+
+    if not _is_meaningful_student_analytics(analytics_payload):
+        return {
+            'strengths': [],
+            'improvements': [],
+            'suggestions': [],
+            'timestamp': timestamp,
+        }
+
+    course_details = analytics_payload.get('courseDetails') or []
+    knowledge_points_by_course = analytics_payload.get('knowledgePointsByCourse') or {}
+    knowledge_points = analytics_payload.get('knowledgePoints') or []
+    selected_course = None
+    if course_id is not None:
+        selected_course = next(
+            (course_detail for course_detail in course_details if int(course_detail.get('id', 0)) == int(course_id)),
+            None
+        )
+
+    relevant_courses = [selected_course] if selected_course else course_details
+    relevant_courses = [course for course in relevant_courses if course]
+
+    strengths = []
+    improvements = []
+    suggestions = []
+
+    best_course = max(relevant_courses or course_details, key=lambda item: (
+        item.get('progress', 0),
+        item.get('score', 0),
+        item.get('learningTime', 0),
+    ), default=None)
+    weakest_course = min(relevant_courses or course_details, key=lambda item: (
+        item.get('progress', 0),
+        item.get('learningTime', 0),
+        item.get('score', 0),
+    ), default=None)
+
+    if best_course and best_course.get('progress', 0) >= 70:
+        strengths.append(f"《{best_course['name']}》学习进展稳定，当前进度达到{best_course['progress']}%")
+    if analytics_payload.get('overallProgress', 0) >= 60:
+        strengths.append(f"整体学习进度达到{analytics_payload['overallProgress']}%，已形成较好的推进节奏")
+    if analytics_payload.get('weeklyLearningTime', 0) >= 5:
+        strengths.append(f"本周累计学习 {analytics_payload['weeklyLearningTime']} 小时，学习投入较为充足")
+    if best_course and best_course.get('score', 0) >= 80:
+        strengths.append(f"《{best_course['name']}》相关测验表现较好，平均成绩保持在 {best_course['score']} 分左右")
+
+    weakest_knowledge_point = min(
+        knowledge_points,
+        key=lambda item: item.get('value', 0),
+        default=None
+    )
+    strongest_knowledge_point = max(
+        knowledge_points,
+        key=lambda item: item.get('value', 0),
+        default=None
+    )
+
+    if strongest_knowledge_point and strongest_knowledge_point.get('value', 0) >= 75:
+        strengths.append(f"{strongest_knowledge_point['label']} 相关知识点掌握较好，当前掌握度为 {strongest_knowledge_point['value']}%")
+
+    if analytics_payload.get('notStartedCourses', 0) > 0:
+        improvements.append(f"仍有 {analytics_payload['notStartedCourses']} 门课程尚未开始，建议尽快建立学习起点")
+    if weakest_course and weakest_course.get('progress', 0) < 50:
+        improvements.append(f"《{weakest_course['name']}》当前进度仅 {weakest_course['progress']}%，需要优先补强")
+    if analytics_payload.get('weeklyLearningTime', 0) < 2:
+        improvements.append('本周有效学习时长偏少，建议增加固定学习时段')
+    if weakest_knowledge_point and weakest_knowledge_point.get('value', 0) < 60:
+        improvements.append(f"{weakest_knowledge_point['label']} 掌握度偏弱，建议集中复习相关内容")
+
+    if weakest_knowledge_point:
+        suggestions.append(f"优先复习 {weakest_knowledge_point['label']} 的核心概念，并结合课程材料完成针对性练习")
+    if weakest_course:
+        suggestions.append(f"先推进《{weakest_course['name']}》的近期学习任务，逐步把课程进度提升到 60% 以上")
+    if analytics_payload.get('weeklyLearningTime', 0) < 5:
+        suggestions.append('建议为本周剩余时间安排固定学习计划，避免学习节奏中断')
+    if best_course:
+        suggestions.append(f"延续《{best_course['name']}》中的学习方法，把高效做法复用到其它课程")
+
+    if selected_course:
+        course_points = knowledge_points_by_course.get(str(selected_course.get('id'))) or []
+        low_course_point = min(course_points, key=lambda item: item.get('value', 0), default=None)
+        high_course_point = max(course_points, key=lambda item: item.get('value', 0), default=None)
+        if high_course_point and high_course_point.get('value', 0) >= 75:
+            strengths.insert(0, f"《{selected_course['name']}》中的 {high_course_point['label']} 掌握较好")
+        if low_course_point and low_course_point.get('value', 0) < 60:
+            improvements.insert(0, f"《{selected_course['name']}》中的 {low_course_point['label']} 仍需重点提升")
+            suggestions.insert(0, f"建议围绕《{selected_course['name']}》的 {low_course_point['label']} 制定专项复习计划")
+
+    return {
+        'strengths': _dedupe_keep_order(strengths)[:4],
+        'improvements': _dedupe_keep_order(improvements)[:4],
+        'suggestions': _dedupe_keep_order(suggestions)[:5],
+        'timestamp': timestamp,
+    }
+
+def _build_student_analytics_payload(student):
+    student_id = student.id
+    learning_records = LearningRecord.query.filter_by(student_id=student_id).order_by(
+        LearningRecord.timestamp.asc()
+    ).all()
+
+    course_map = {
+        course.id: course
+        for course in (student.courses_enrolled or [])
+    }
+    record_course_ids = sorted({
+        int(record.course_id)
+        for record in learning_records
+        if record.course_id
+    })
+    if record_course_ids:
+        for course in Course.query.filter(Course.id.in_(record_course_ids)).all():
+            course_map[course.id] = course
+
+    student_courses = list(course_map.values())
+    course_ids = [course.id for course in student_courses]
+
+    course_records = {}
+    duration_by_date = {}
+    for record in learning_records:
+        course_records.setdefault(record.course_id, []).append(record)
+        if record.timestamp:
+            record_date = record.timestamp.date()
+            duration_by_date[record_date] = duration_by_date.get(record_date, 0) + int(record.duration or 0)
+
+    material_count_map = {}
+    assessment_count_map = {}
+    if course_ids:
+        material_count_map = {
+            int(course_id): int(total or 0)
+            for course_id, total in db.session.query(
+                Material.course_id,
+                func.count(Material.id)
+            ).filter(Material.course_id.in_(course_ids)).group_by(Material.course_id).all()
+        }
+        assessment_count_map = {
+            int(course_id): int(total or 0)
+            for course_id, total in db.session.query(
+                Assessment.course_id,
+                func.count(Assessment.id)
+            ).filter(Assessment.course_id.in_(course_ids)).group_by(Assessment.course_id).all()
+        }
+
+    submissions = []
+    if course_ids:
+        submissions = db.session.query(AssessmentSubmission).join(
+            Assessment, Assessment.id == AssessmentSubmission.assessment_id
+        ).filter(
+            AssessmentSubmission.student_id == student_id,
+            Assessment.course_id.in_(course_ids)
+        ).all()
+
+    submission_stats = {}
+    for submission in submissions:
+        course_id = getattr(submission.assessment, 'course_id', None)
+        if not course_id:
+            continue
+        stat = submission_stats.setdefault(course_id, {'count': 0, 'scores': []})
+        stat['count'] += 1
+        if submission.score is not None:
+            stat['scores'].append(float(submission.score))
+
+    completed_courses = 0
+    in_progress_courses = 0
+    not_started_courses = 0
+    course_progress = {}
+    course_details = []
+    knowledge_points_by_course = {}
+
+    for course in student_courses:
+        records = course_records.get(course.id, [])
+        submission_stat = submission_stats.get(course.id, {'count': 0, 'scores': []})
+        viewed_materials = {
+            material_key
+            for material_key in (
+                _build_material_view_key(record)
+                for record in records
+                if record.activity_type == 'view_material'
+            )
+            if material_key
+        }
+        materials_count = max(1, material_count_map.get(course.id, 0))
+        material_ratio = min(1.0, len(viewed_materials) / materials_count) if materials_count else 0
+        assessments_count = assessment_count_map.get(course.id, 0)
+        submission_ratio = min(1.0, submission_stat['count'] / max(1, assessments_count)) if assessments_count else 0
+        active_records_count = len([
+            record for record in records
+            if record.activity_type not in ('enrolled', 'unenrolled')
+        ])
+        has_any_activity = bool(active_records_count or submission_stat['count'])
+
+        progress = int(round(material_ratio * 70 + submission_ratio * 30))
+        if has_any_activity and progress == 0:
+            progress = min(20, 5 * max(1, active_records_count or submission_stat['count']))
+        if assessments_count > 0 and submission_stat['count'] >= assessments_count and material_ratio >= 1:
+            progress = 100
+        progress = max(0, min(100, progress))
+        course_progress[course.id] = progress
+
+        if progress >= 100:
+            completed_courses += 1
+        elif progress > 0:
+            in_progress_courses += 1
+        else:
+            not_started_courses += 1
+
+        total_course_seconds = sum(int(record.duration or 0) for record in records)
+        learning_time_hours = _round_hours(total_course_seconds)
+        meaningful_records = [
+            record for record in records
+            if record.activity_type not in ('enrolled', 'unenrolled')
+        ]
+        last_activity = meaningful_records[-1].timestamp if meaningful_records else None
+        score_values = submission_stat['scores']
+        score = int(round(sum(score_values) / len(score_values))) if score_values else 0
+
+        course_details.append({
+            'id': course.id,
+            'name': course.name,
+            'category': course.category or '未分类',
+            'progress': progress,
+            'learningTime': learning_time_hours,
+            'lastActivity': _safe_date_label(last_activity),
+            'score': score,
+        })
+
+        knowledge_points_by_course[str(course.id)] = _build_course_knowledge_points(
+            course,
+            progress,
+            learning_time_hours,
+            score,
+        )
+
+    course_details.sort(key=lambda item: (
+        item['lastActivity'] == '未学习',
+        item['lastActivity'],
+        item['name'],
+    ))
+
+    overall_progress = int(round(
+        sum(course_progress.values()) / len(course_progress)
+    )) if course_progress else 0
+
+    today = datetime.now().date()
+    week_start = today - timedelta(days=today.weekday())
+    last_week_start = week_start - timedelta(days=7)
+
+    weekly_seconds = sum(
+        duration for date_value, duration in duration_by_date.items()
+        if week_start <= date_value <= today
+    )
+    previous_week_seconds = sum(
+        duration for date_value, duration in duration_by_date.items()
+        if last_week_start <= date_value < week_start
+    )
+
+    return {
+        'overallProgress': overall_progress,
+        'weeklyLearningTime': _round_hours(weekly_seconds),
+        'previousWeekTime': _round_hours(previous_week_seconds),
+        'completedCourses': completed_courses,
+        'inProgressCourses': in_progress_courses,
+        'notStartedCourses': not_started_courses,
+        'trendData': {
+            'week': _build_week_trend(today, duration_by_date),
+            'month': _build_month_trend(today, duration_by_date),
+            'year': _build_year_trend(today, duration_by_date),
+        },
+        'courseDetails': course_details,
+        'knowledgePoints': _aggregate_knowledge_points(knowledge_points_by_course),
+        'knowledgePointsByCourse': knowledge_points_by_course,
+    }
 
 def get_absolute_material_path(relative_path):
     if not relative_path:
@@ -1853,6 +2431,8 @@ def courses_options():
 # @jwt_required()  # 暂时禁用JWT认证要求
 def get_courses():
     """获取课程列表"""
+    current_user = get_current_user_from_request()
+
     # 获取查询参数
     category = request.args.get('category')
     difficulty = request.args.get('difficulty')
@@ -1862,6 +2442,9 @@ def get_courses():
     
     # 构建查询
     query = Course.query
+
+    if current_user and current_user.role == 'student':
+        query = query.filter(Course.is_public.is_(True))
     
     # 应用过滤条件
     if category:
@@ -1880,11 +2463,19 @@ def get_courses():
     courses_pagination = query.paginate(page=page, per_page=per_page)
     
     # 准备响应数据
+    enrolled_course_ids = set()
+    if current_user and current_user.role == 'student':
+        enrolled_course_ids = {
+            int(course.id)
+            for course in (current_user.courses_enrolled or [])
+        }
+
     courses_data = []
     for course in courses_pagination.items:
         course_dict = course.to_dict()
         # 添加额外信息
         course_dict['material_count'] = Material.query.filter_by(course_id=course.id).count()
+        course_dict['is_enrolled'] = course.id in enrolled_course_ids
         courses_data.append(course_dict)
     
     return jsonify({
@@ -1899,10 +2490,16 @@ def get_courses():
 # @jwt_required()  # 暂时禁用JWT认证要求
 def get_course(course_id):
     """获取课程详情"""
+    current_user = get_current_user_from_request()
+
     # 查找课程
     course = Course.query.get(course_id)
     if not course:
         return jsonify({'error': 'Course not found'}), 404
+
+    if current_user and current_user.role == 'student' and not course.is_public:
+        if course not in (current_user.courses_enrolled or []):
+            return jsonify({'error': 'Course not found'}), 404
     
     # 获取课程详情
     course_data = course.to_dict()
@@ -1910,8 +2507,76 @@ def get_course(course_id):
     # 添加额外信息
     course_data['material_count'] = Material.query.filter_by(course_id=course.id).count()
     course_data['teacher_name'] = User.query.get(course.teacher_id).full_name if course.teacher_id else None
+    course_data['is_enrolled'] = bool(
+        current_user and
+        current_user.role == 'student' and
+        course in (current_user.courses_enrolled or [])
+    )
     
     return jsonify(course_data)
+
+@learning_bp.route('/enroll/<int:course_id>', methods=['POST'])
+def enroll_course(course_id):
+    """学生加入公开课程"""
+    current_user = get_current_user_from_request()
+    if not current_user or current_user.role != 'student':
+        return jsonify({'error': 'Only students can enroll courses'}), 403
+
+    course = Course.query.get(course_id)
+    if not course or not course.is_public:
+        return jsonify({'error': 'Course not found'}), 404
+
+    if current_user in (course.students or []):
+        return jsonify({
+            'message': 'Already enrolled in course',
+            'course': course.to_dict()
+        }), 200
+
+    course.students.append(current_user)
+    db.session.add(LearningRecord(
+        student_id=current_user.id,
+        course_id=course.id,
+        activity_type='enrolled',
+        activity_detail='Student enrolled from course catalog'
+    ))
+    db.session.commit()
+
+    course_data = course.to_dict()
+    course_data['is_enrolled'] = True
+    return jsonify({
+        'message': 'Enrolled in course successfully',
+        'course': course_data
+    }), 201
+
+@learning_bp.route('/unenroll/<int:course_id>', methods=['POST'])
+def unenroll_course(course_id):
+    """学生退出已加入课程"""
+    current_user = get_current_user_from_request()
+    if not current_user or current_user.role != 'student':
+        return jsonify({'error': 'Only students can unenroll courses'}), 403
+
+    course = Course.query.get(course_id)
+    if not course:
+        return jsonify({'error': 'Course not found'}), 404
+
+    if current_user not in (course.students or []):
+        return jsonify({'error': 'Student not enrolled in this course'}), 404
+
+    course.students.remove(current_user)
+    db.session.add(LearningRecord(
+        student_id=current_user.id,
+        course_id=course.id,
+        activity_type='unenrolled',
+        activity_detail='Student unenrolled from course catalog'
+    ))
+    db.session.commit()
+
+    course_data = course.to_dict()
+    course_data['is_enrolled'] = False
+    return jsonify({
+        'message': 'Unenrolled from course successfully',
+        'course': course_data
+    })
 
 # 创建课程
 @learning_bp.route('/courses', methods=['POST'])
@@ -2168,12 +2833,35 @@ def delete_course(course_id):
 @learning_bp.route('/my-courses', methods=['GET'])
 # @jwt_required()  # 暂时禁用JWT认证要求
 def get_my_courses():
-    # user_id = get_jwt_identity()  # 暂时注释掉
-    user_id = 2  # 使用默认ID
-    
-    # 查询教师的课程
-    my_courses = Course.query.filter_by(teacher_id=user_id).order_by(Course.updated_at.desc(), Course.created_at.desc()).all()
-    
+    current_user = get_current_user_from_request()
+
+    if current_user:
+        if current_user.role == 'student':
+            my_courses = db.session.query(Course).join(
+                Course.students
+            ).filter(
+                User.id == current_user.id
+            ).order_by(
+                Course.updated_at.desc(),
+                Course.created_at.desc()
+            ).all()
+        elif current_user.role == 'admin':
+            my_courses = Course.query.order_by(
+                Course.updated_at.desc(),
+                Course.created_at.desc()
+            ).all()
+        else:
+            my_courses = Course.query.filter_by(teacher_id=current_user.id).order_by(
+                Course.updated_at.desc(),
+                Course.created_at.desc()
+            ).all()
+    else:
+        # 兼容旧的无鉴权调用，保持原有教师视角默认行为
+        my_courses = Course.query.filter_by(teacher_id=2).order_by(
+            Course.updated_at.desc(),
+            Course.created_at.desc()
+        ).all()
+
     return jsonify({
         'courses': [course.to_dict() for course in my_courses],
         'total': len(my_courses)
@@ -2662,6 +3350,53 @@ def get_teacher_classes():
     return jsonify({
         'classes': [teacher_class.to_dict() for teacher_class in teacher_classes],
         'total': len(teacher_classes)
+    })
+
+
+@learning_bp.route('/teacher-classes/<int:class_id>/available-students', methods=['GET'])
+@api_error_handler
+def get_teacher_class_available_students(class_id):
+    teacher_class = TeacherClass.query.get(class_id)
+    if not teacher_class:
+        return jsonify({'error': '班级不存在'}), 404
+
+    current_user = get_current_user_from_request()
+    access_error = ensure_teacher_class_access(teacher_class, current_user)
+    if access_error:
+        return access_error
+
+    search = str(request.args.get('search') or '').strip().lower()
+    current_student_ids = {student.id for student in teacher_class.students}
+
+    query = User.query.filter(User.role == 'student').order_by(User.created_at.desc(), User.id.desc())
+    students = query.all()
+
+    if search:
+        filtered_students = []
+        for student in students:
+            if (
+                search in str(student.username or '').lower()
+                or search in str(student.email or '').lower()
+                or search in str(student.full_name or '').lower()
+            ):
+                filtered_students.append(student)
+        students = filtered_students
+
+    students_data = []
+    for student in students:
+        students_data.append({
+            'id': student.id,
+            'username': student.username,
+            'email': student.email,
+            'full_name': student.full_name,
+            'role': student.role,
+            'created_at': student.created_at.isoformat() if student.created_at else None,
+            'already_in_class': student.id in current_student_ids,
+        })
+
+    return jsonify({
+        'students': students_data,
+        'total': len(students_data),
     })
 
 
@@ -5334,186 +6069,36 @@ def get_assessment_submission_count(assessment_id):
 def get_student_analytics(student_id):
     """获取单个学生的学习分析数据"""
     try:
-        # 检查学生是否存在
         student = User.query.get(student_id)
         if not student:
             return jsonify({'error': 'Student not found'}), 404
-            
-        # 获取学生的总体学习进度
-        # 这里简化计算，实际应该基于课程完成情况计算
-        student_courses = db.session.query(Course).join(
-            Course.students
-        ).filter(User.id == student_id).all()
-        
-        total_courses = len(student_courses)
-        completed_courses = 0
-        in_progress_courses = 0
-        not_started_courses = 0
-        
-        # 获取学生的学习记录
-        learning_records = LearningRecord.query.filter_by(student_id=student_id).all()
-        
-        # 按课程ID分组学习记录
-        course_records = {}
-        for record in learning_records:
-            if record.course_id not in course_records:
-                course_records[record.course_id] = []
-            course_records[record.course_id].append(record)
-        
-        # 计算每个课程的进度
-        course_progress = {}
-        for course in student_courses:
-            # 这里简化计算，实际应该基于完成的材料和评估来计算
-            records = course_records.get(course.id, [])
-            if not records:
-                course_progress[course.id] = 0
-                not_started_courses += 1
-            else:
-                # 简单计算进度：基于活动记录数量
-                materials_count = db.session.query(Material).filter_by(course_id=course.id).count()
-                if materials_count == 0:
-                    materials_count = 1  # 避免除以零
-                
-                # 查看过的材料数量
-                viewed_materials = len(set([r.activity_detail for r in records if r.activity_type == 'view_material']))
-                progress = min(100, int((viewed_materials / materials_count) * 100))
-                course_progress[course.id] = progress
-                
-                if progress == 100:
-                    completed_courses += 1
-                elif progress > 0:
-                    in_progress_courses += 1
-                else:
-                    not_started_courses += 1
-        
-        # 计算总体进度
-        overall_progress = 0
-        if total_courses > 0:
-            overall_progress = int(sum(course_progress.values()) / total_courses)
-        
-        # 计算本周和上周的学习时间
-        today = datetime.now().date()
-        week_start = today - timedelta(days=today.weekday())
-        week_end = week_start + timedelta(days=6)
-        last_week_start = week_start - timedelta(days=7)
-        last_week_end = week_start - timedelta(days=1)
-        
-        # 本周学习时间
-        weekly_learning_time = db.session.query(func.sum(LearningRecord.duration)).filter(
-            LearningRecord.student_id == student_id,
-            LearningRecord.timestamp >= week_start,
-            LearningRecord.timestamp <= week_end
-        ).scalar() or 0
-        
-        # 上周学习时间
-        previous_week_time = db.session.query(func.sum(LearningRecord.duration)).filter(
-            LearningRecord.student_id == student_id,
-            LearningRecord.timestamp >= last_week_start,
-            LearningRecord.timestamp <= last_week_end
-        ).scalar() or 0
-        
-        # 转换为小时
-        weekly_learning_time = round(weekly_learning_time / 3600, 1)
-        previous_week_time = round(previous_week_time / 3600, 1)
-        
-        # 获取学习趋势数据（最近7天）
-        trend_data = []
-        for i in range(6, -1, -1):
-            date = today - timedelta(days=i)
-            day_learning_time = db.session.query(func.sum(LearningRecord.duration)).filter(
-                LearningRecord.student_id == student_id,
-                func.date(LearningRecord.timestamp) == date
-            ).scalar() or 0
-            
-            # 转换为小时
-            day_learning_time = round(day_learning_time / 3600, 1)
-            
-            # 格式化日期标签
-            if i == 0:
-                label = "今天"
-            elif i == 1:
-                label = "昨天"
-            else:
-                label = date.strftime("%m-%d")
-                
-            trend_data.append({
-                "label": label,
-                "value": day_learning_time
-            })
-        
-        # 获取课程详情
-        courses_details = []
-        for course in student_courses:
-            # 计算学习时间
-            course_learning_time = db.session.query(func.sum(LearningRecord.duration)).filter(
-                LearningRecord.student_id == student_id,
-                LearningRecord.course_id == course.id
-            ).scalar() or 0
-            
-            # 转换为小时
-            course_learning_time = round(course_learning_time / 3600, 1)
-            
-            # 最后学习时间
-            last_activity = db.session.query(LearningRecord).filter(
-                LearningRecord.student_id == student_id,
-                LearningRecord.course_id == course.id
-            ).order_by(LearningRecord.timestamp.desc()).first()
-            
-            last_activity_date = last_activity.timestamp.strftime("%Y-%m-%d") if last_activity else "未学习"
-            
-            # 评分（基于评估成绩）
-            submissions = db.session.query(AssessmentSubmission).join(
-                Assessment, Assessment.id == AssessmentSubmission.assessment_id
-            ).filter(
-                AssessmentSubmission.student_id == student_id,
-                Assessment.course_id == course.id
-            ).all()
-            
-            score = 0
-            if submissions:
-                total_score = sum([s.score for s in submissions if s.score is not None])
-                score = int(total_score / len(submissions))
-            
-            courses_details.append({
-                "id": course.id,
-                "name": course.name,
-                "category": course.category,
-                "progress": course_progress.get(course.id, 0),
-                "learningTime": course_learning_time,
-                "lastActivity": last_activity_date,
-                "score": score
-            })
-        
-        # 模拟知识点掌握情况数据
-        # 实际应该基于评估题目的知识点标签和得分情况计算
-        knowledge_points = [
-            {"label": "编程基础", "value": 85},
-            {"label": "数据结构", "value": 65},
-            {"label": "算法设计", "value": 70},
-            {"label": "数据库", "value": 90},
-            {"label": "网络原理", "value": 60},
-            {"label": "软件工程", "value": 75}
-        ]
-        
-        return jsonify({
-            "overallProgress": overall_progress,
-            "weeklyLearningTime": weekly_learning_time,
-            "previousWeekTime": previous_week_time,
-            "completedCourses": completed_courses,
-            "inProgressCourses": in_progress_courses,
-            "notStartedCourses": not_started_courses,
-            "trendData": {
-                "week": trend_data,
-                # 简化版本，实际应该计算月和年的数据
-                "month": [{"label": f"第{i+1}周", "value": 20 + i*5} for i in range(4)],
-                "year": [{"label": f"{i+1}月", "value": 15 + i*3} for i in range(6)]
-            },
-            "courseDetails": courses_details,
-            "knowledgePoints": knowledge_points
-        })
+        response_payload = _apply_demo_student_snapshot(student, _build_student_analytics_payload(student))
+        return jsonify(response_payload)
     except Exception as e:
         current_app.logger.error(f"获取学生学习分析数据失败: {str(e)}")
         return jsonify({'error': f'获取学习分析数据失败: {str(e)}'}), 500
+
+@learning_bp.route('/ai/learning-analysis', methods=['POST'])
+def get_student_ai_learning_analysis():
+    """基于学生学习分析结果生成动态学习建议"""
+    try:
+        data = request.get_json() or {}
+        student_id = data.get('studentId')
+        course_id = data.get('courseId')
+
+        if not student_id:
+            return jsonify({'error': 'studentId is required'}), 400
+
+        student = User.query.get(int(student_id))
+        if not student:
+            return jsonify({'error': 'Student not found'}), 404
+
+        analytics_payload = _apply_demo_student_snapshot(student, _build_student_analytics_payload(student))
+        analysis_payload = _build_student_ai_analysis(student, analytics_payload, course_id=course_id)
+        return jsonify(analysis_payload)
+    except Exception as e:
+        current_app.logger.error(f"生成AI学习建议失败: {str(e)}")
+        return jsonify({'error': f'生成学习建议失败: {str(e)}'}), 500
 
 @learning_bp.route('/analytics/course/<int:course_id>', methods=['GET'])
 # @jwt_required()  # 暂时禁用JWT认证要求

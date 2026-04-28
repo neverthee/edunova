@@ -221,7 +221,7 @@
         <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" @click="closeCreateStudentModal"></div>
         
         <!-- Modal Content -->
-        <div class="relative w-full max-w-lg overflow-hidden rounded-[2rem] bg-white shadow-2xl transform transition-all">
+        <div class="relative w-full max-w-4xl overflow-hidden rounded-[2rem] bg-white shadow-2xl transform transition-all">
           <div class="absolute right-0 top-0 h-40 w-40 -translate-y-16 translate-x-16 rounded-full bg-gradient-to-br from-emerald-100 to-teal-100 opacity-50 blur-3xl"></div>
           
           <div class="relative z-10 px-8 py-8 border-b border-slate-100">
@@ -236,56 +236,152 @@
             </div>
           </div>
 
-          <div class="relative z-10 p-8 space-y-5 bg-slate-50/50">
-            <div class="grid grid-cols-2 gap-5">
-              <div>
-                <label class="mb-2 block text-sm font-semibold text-slate-700">姓名</label>
-                <input
-                  v-model.trim="studentForm.full_name"
-                  type="text"
-                  class="w-full rounded-xl border-2 border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 outline-none transition focus:border-emerald-500 focus:bg-white"
-                  placeholder="例如：李雷"
-                />
+          <div class="relative z-10 p-8 space-y-6 bg-slate-50/50">
+            <div class="inline-flex rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+              <button
+                type="button"
+                @click="studentMode = 'existing'"
+                class="rounded-xl px-4 py-2 text-sm font-semibold transition"
+                :class="studentMode === 'existing' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+              >
+                选择已有学生
+              </button>
+              <button
+                type="button"
+                @click="studentMode = 'create'"
+                class="rounded-xl px-4 py-2 text-sm font-semibold transition"
+                :class="studentMode === 'create' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+              >
+                新建学生
+              </button>
+            </div>
+
+            <div v-if="studentMode === 'existing'" class="space-y-5">
+              <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div class="relative w-full lg:max-w-md">
+                  <input
+                    v-model.trim="studentSearchKeyword"
+                    type="text"
+                    class="w-full rounded-xl border-2 border-slate-200 px-4 py-3 pl-11 text-slate-800 placeholder-slate-400 outline-none transition focus:border-emerald-500 focus:bg-white"
+                    placeholder="搜索用户名、姓名或邮箱"
+                  />
+                  <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                  </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-3 text-sm">
+                  <span class="rounded-full bg-white px-3 py-2 font-semibold text-slate-600 shadow-sm border border-slate-200">
+                    已选 {{ selectedExistingStudentIds.length }} 人
+                  </span>
+                  <button
+                    type="button"
+                    @click="toggleSelectAllVisibleStudents"
+                    :disabled="selectableVisibleStudentCandidates.length === 0"
+                    class="rounded-xl border border-slate-200 bg-white px-4 py-2 font-semibold text-slate-600 transition hover:border-emerald-200 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {{ allVisibleSelectableStudentsSelected ? '取消全选' : '全选当前结果' }}
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <label class="mb-2 block text-sm font-semibold text-slate-700">用户名 <span class="text-rose-500">*</span></label>
-                <input
-                  v-model.trim="studentForm.username"
-                  type="text"
-                  class="w-full rounded-xl border-2 border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 outline-none transition focus:border-emerald-500 focus:bg-white"
-                  placeholder="登录账号"
-                />
+              <div v-if="studentCandidatesLoading" class="space-y-3">
+                <div v-for="index in 5" :key="index" class="h-16 animate-pulse rounded-2xl bg-white/80 border border-slate-100"></div>
+              </div>
+
+              <div v-else-if="filteredStudentCandidates.length === 0" class="rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-12 text-center">
+                <div class="text-base font-semibold text-slate-800">没有可选学生</div>
+                <div class="mt-2 text-sm text-slate-500">当前没有匹配的已注册学生，可切换到“新建学生”。</div>
+              </div>
+
+              <div v-else class="max-h-[420px] space-y-3 overflow-y-auto pr-2 custom-scrollbar">
+                <label
+                  v-for="student in filteredStudentCandidates"
+                  :key="student.id"
+                  class="flex cursor-pointer items-center justify-between rounded-2xl border bg-white px-4 py-4 shadow-sm transition"
+                  :class="student.already_in_class ? 'border-slate-100 opacity-75' : 'border-slate-100 hover:border-emerald-200 hover:shadow-md'"
+                >
+                  <div class="flex min-w-0 items-center gap-4">
+                    <input
+                      :checked="selectedExistingStudentIds.includes(student.id)"
+                      :disabled="student.already_in_class"
+                      type="checkbox"
+                      class="h-4 w-4 rounded border-slate-300 text-emerald-600"
+                      @change="toggleExistingStudentSelection(student.id)"
+                    />
+                    <div class="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-emerald-100 to-teal-100 text-sm font-bold text-emerald-700">
+                      {{ (student.full_name || student.username).charAt(0).toUpperCase() }}
+                    </div>
+                    <div class="min-w-0">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <span class="truncate text-sm font-bold text-slate-800">{{ student.full_name || student.username }}</span>
+                        <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">{{ student.username }}</span>
+                      </div>
+                      <div class="mt-1 truncate text-xs text-slate-400">{{ student.email }}</div>
+                    </div>
+                  </div>
+
+                  <span
+                    class="ml-4 shrink-0 rounded-full px-3 py-1 text-xs font-bold"
+                    :class="student.already_in_class ? 'bg-slate-100 text-slate-500' : 'bg-emerald-50 text-emerald-600'"
+                  >
+                    {{ student.already_in_class ? '已在班级' : '可加入' }}
+                  </span>
+                </label>
               </div>
             </div>
 
-            <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">邮箱 <span class="text-rose-500">*</span></label>
-              <div class="relative">
-                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+            <div v-else class="space-y-5">
+              <div class="grid grid-cols-2 gap-5">
+                <div>
+                  <label class="mb-2 block text-sm font-semibold text-slate-700">姓名</label>
+                  <input
+                    v-model.trim="studentForm.full_name"
+                    type="text"
+                    class="w-full rounded-xl border-2 border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 outline-none transition focus:border-emerald-500 focus:bg-white"
+                    placeholder="例如：李雷"
+                  />
                 </div>
-                <input
-                  v-model.trim="studentForm.email"
-                  type="email"
-                  class="w-full rounded-xl border-2 border-slate-200 pl-11 pr-4 py-3 text-slate-800 placeholder-slate-400 outline-none transition focus:border-emerald-500 focus:bg-white"
-                  placeholder="lilei@school.com"
-                />
-              </div>
-            </div>
 
-            <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">初始密码 <span class="text-rose-500">*</span></label>
-              <div class="relative">
-                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                <div>
+                  <label class="mb-2 block text-sm font-semibold text-slate-700">用户名 <span class="text-rose-500">*</span></label>
+                  <input
+                    v-model.trim="studentForm.username"
+                    type="text"
+                    class="w-full rounded-xl border-2 border-slate-200 px-4 py-3 text-slate-800 placeholder-slate-400 outline-none transition focus:border-emerald-500 focus:bg-white"
+                    placeholder="登录账号"
+                  />
                 </div>
-                <input
-                  v-model="studentForm.password"
-                  type="text"
-                  class="w-full rounded-xl border-2 border-slate-200 pl-11 pr-4 py-3 text-slate-800 placeholder-slate-400 outline-none transition focus:border-emerald-500 focus:bg-white"
-                  placeholder="至少 6 位密码"
-                />
+              </div>
+
+              <div>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">邮箱 <span class="text-rose-500">*</span></label>
+                <div class="relative">
+                  <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                  </div>
+                  <input
+                    v-model.trim="studentForm.email"
+                    type="email"
+                    class="w-full rounded-xl border-2 border-slate-200 pl-11 pr-4 py-3 text-slate-800 placeholder-slate-400 outline-none transition focus:border-emerald-500 focus:bg-white"
+                    placeholder="lilei@school.com"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">初始密码 <span class="text-rose-500">*</span></label>
+                <div class="relative">
+                  <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                  </div>
+                  <input
+                    v-model="studentForm.password"
+                    type="text"
+                    class="w-full rounded-xl border-2 border-slate-200 pl-11 pr-4 py-3 text-slate-800 placeholder-slate-400 outline-none transition focus:border-emerald-500 focus:bg-white"
+                    placeholder="至少 6 位密码"
+                  />
+                </div>
               </div>
             </div>
 
@@ -305,12 +401,12 @@
             </button>
             <button
               type="button"
-              @click="createStudent"
+              @click="submitStudentAction"
               :disabled="studentSubmitting"
               class="rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white shadow-md shadow-emerald-200 transition hover:bg-emerald-700 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
             >
               <svg v-if="studentSubmitting" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-              {{ studentSubmitting ? '添加中...' : '确认添加' }}
+              {{ studentSubmitting ? '添加中...' : (studentMode === 'existing' ? '加入班级' : '确认创建') }}
             </button>
           </div>
         </div>
@@ -356,6 +452,11 @@ const showCreateStudentModal = ref(false);
 const studentSubmitting = ref(false);
 const studentFormError = ref('');
 const activeClass = ref<TeacherClassRecord | null>(null);
+const studentMode = ref<'existing' | 'create'>('existing');
+const studentSearchKeyword = ref('');
+const studentCandidatesLoading = ref(false);
+const studentCandidates = ref<Array<MyClassStudentRecord & { already_in_class?: boolean }>>([]);
+const selectedExistingStudentIds = ref<number[]>([]);
 const studentForm = reactive({
   username: '',
   email: '',
@@ -369,6 +470,28 @@ const uniqueStudentCount = computed(() => {
     (teacherClass.students || []).forEach((student) => studentIds.add(student.id));
   });
   return studentIds.size;
+});
+
+const filteredStudentCandidates = computed(() => {
+  const keyword = studentSearchKeyword.value.trim().toLowerCase();
+  if (!keyword) {
+    return studentCandidates.value;
+  }
+
+  return studentCandidates.value.filter(student =>
+    [student.username, student.email, student.full_name].some(field =>
+      String(field || '').toLowerCase().includes(keyword)
+    )
+  );
+});
+
+const selectableVisibleStudentCandidates = computed(() =>
+  filteredStudentCandidates.value.filter(student => !student.already_in_class)
+);
+
+const allVisibleSelectableStudentsSelected = computed(() => {
+  const selectableIds = selectableVisibleStudentCandidates.value.map(student => student.id);
+  return selectableIds.length > 0 && selectableIds.every(id => selectedExistingStudentIds.value.includes(id));
 });
 
 async function fetchClasses() {
@@ -433,13 +556,39 @@ function resetStudentForm() {
   studentForm.email = '';
   studentForm.password = '';
   studentForm.full_name = '';
+  studentMode.value = 'existing';
+  studentSearchKeyword.value = '';
+  studentCandidates.value = [];
+  selectedExistingStudentIds.value = [];
   studentFormError.value = '';
 }
 
-function openCreateStudentModal(teacherClass: TeacherClassRecord) {
+async function fetchStudentCandidates() {
+  if (!activeClass.value) {
+    studentCandidates.value = [];
+    return;
+  }
+
+  studentCandidatesLoading.value = true;
+  try {
+    const response = await teacherClassAPI.getAvailableStudents(activeClass.value.id) as {
+      students?: Array<MyClassStudentRecord & { already_in_class?: boolean }>;
+    };
+    studentCandidates.value = response.students || [];
+  } catch (error) {
+    console.error('获取已注册学生失败:', error);
+    studentCandidates.value = [];
+    studentFormError.value = '无法加载已注册学生列表，请稍后重试';
+  } finally {
+    studentCandidatesLoading.value = false;
+  }
+}
+
+async function openCreateStudentModal(teacherClass: TeacherClassRecord) {
   activeClass.value = teacherClass;
   resetStudentForm();
   showCreateStudentModal.value = true;
+  await fetchStudentCandidates();
 }
 
 function closeCreateStudentModal() {
@@ -493,6 +642,69 @@ async function createStudent() {
   } finally {
     studentSubmitting.value = false;
   }
+}
+
+function toggleExistingStudentSelection(studentId: number) {
+  const index = selectedExistingStudentIds.value.indexOf(studentId);
+  if (index >= 0) {
+    selectedExistingStudentIds.value.splice(index, 1);
+    return;
+  }
+  selectedExistingStudentIds.value.push(studentId);
+}
+
+function toggleSelectAllVisibleStudents() {
+  const visibleIds = selectableVisibleStudentCandidates.value.map(student => student.id);
+  if (visibleIds.length === 0) {
+    return;
+  }
+
+  if (allVisibleSelectableStudentsSelected.value) {
+    selectedExistingStudentIds.value = selectedExistingStudentIds.value.filter(id => !visibleIds.includes(id));
+    return;
+  }
+
+  const nextIds = new Set(selectedExistingStudentIds.value);
+  visibleIds.forEach(id => nextIds.add(id));
+  selectedExistingStudentIds.value = Array.from(nextIds);
+}
+
+async function addExistingStudentsToClass() {
+  if (!activeClass.value) {
+    studentFormError.value = '未选择目标班级';
+    return;
+  }
+
+  if (selectedExistingStudentIds.value.length === 0) {
+    studentFormError.value = '请至少选择一名已注册学生';
+    return;
+  }
+
+  studentSubmitting.value = true;
+  studentFormError.value = '';
+
+  try {
+    await teacherClassAPI.addStudents(activeClass.value.id, selectedExistingStudentIds.value);
+    const className = activeClass.value.name;
+    const addedCount = selectedExistingStudentIds.value.length;
+    closeCreateStudentModal();
+    await fetchClasses();
+    notificationService.success('添加成功', `已将 ${addedCount} 名学生加入 ${className}`);
+  } catch (error: any) {
+    console.error('添加已注册学生失败:', error);
+    studentFormError.value = error?.error || error?.message || '添加学生失败，请稍后重试';
+  } finally {
+    studentSubmitting.value = false;
+  }
+}
+
+async function submitStudentAction() {
+  if (studentMode.value === 'existing') {
+    await addExistingStudentsToClass();
+    return;
+  }
+
+  await createStudent();
 }
 
 async function confirmDeleteClass(teacherClass: TeacherClassRecord) {

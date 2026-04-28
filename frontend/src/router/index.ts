@@ -3,6 +3,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useRoute } from 'vue-router'
 import { h } from 'vue'
 import HomeView from '../views/HomeView.vue'
+import GetStartedView from '../views/GetStartedView.vue'
 import LoginView from '../views/LoginView.vue'
 import RegisterView from '../views/RegisterView.vue'
 import DashboardView from '../views/DashboardView.vue'
@@ -49,6 +50,11 @@ const router = createRouter({
       path: '/login',
       name: 'login',
       component: LoginView
+    },
+    {
+      path: '/start',
+      name: 'getStarted',
+      component: GetStartedView
     },
     {
       path: '/register',

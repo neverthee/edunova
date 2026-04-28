@@ -34,6 +34,10 @@ class Course(db.Model):
         return f'<Course {self.name}>'
     
     def to_dict(self):
+        teacher_name = None
+        if self.teacher:
+            teacher_name = self.teacher.full_name or self.teacher.username
+
         return {
             'id': self.id,
             'name': self.name,
@@ -47,6 +51,7 @@ class Course(db.Model):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'teacher_id': self.teacher_id,
             'teacher': self.teacher.username if self.teacher else None,
+            'teacher_name': teacher_name,
             'student_count': len(self.students) if self.students else 0
         }
     
@@ -54,4 +59,3 @@ class Course(db.Model):
         data = self.to_dict()
         data['students'] = [student.to_dict() for student in self.students] if self.students else []
         return data
-

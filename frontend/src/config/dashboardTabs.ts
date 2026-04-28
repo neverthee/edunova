@@ -5,7 +5,9 @@ export interface DashboardTab {
 
 export const studentTabs: DashboardTab[] = [
   { id: 'dashboard', name: '首页' },
+  { id: 'my-courses', name: '我的课程' },
   { id: 'courses', name: '课程目录' },
+  { id: 'assessments', name: '待办任务' },
   { id: 'analytics', name: '学习分析' },
   { id: 'ai-assistant', name: '智能助手' },
   { id: 'ai-quiz', name: 'AI自测测验' },

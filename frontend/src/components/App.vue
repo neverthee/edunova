@@ -185,7 +185,7 @@ const handleLogout = async () => {
   try {
     authStore.logout()
     showNotification('success', '退出成功', '您已成功退出登录')
-    router.push('/login')
+    router.push('/start')
   } catch (error) {
     showNotification('error', '退出失败', '退出登录时发生错误')
   }

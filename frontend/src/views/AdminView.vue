@@ -192,17 +192,28 @@
           <h2 class="text-xl font-semibold text-gray-900 mb-4">系统日志</h2>
           <div class="bg-white shadow overflow-hidden rounded-md">
             <ul class="divide-y divide-gray-200">
-              <li v-if="!systemLogs || systemLogs.length === 0" class="px-6 py-4 text-center text-gray-500">
+              <li v-if="systemLogsLoading" class="px-6 py-4 text-center text-gray-500">
+                加载中...
+              </li>
+              <li v-else-if="!systemLogs || systemLogs.length === 0" class="px-6 py-4 text-center text-gray-500">
                 暂无系统日志
               </li>
               <li v-else v-for="(log, index) in systemLogs" :key="index" class="px-6 py-4">
                 <div class="flex items-center space-x-4">
                   <div class="flex-1 min-w-0">
-                    <p class="text-sm font-medium text-gray-900 truncate">
-                      {{ log.message }}
-                    </p>
-                    <p class="text-sm text-gray-500 truncate">
-                      {{ log.user }} - {{ log.action }}
+                    <div class="flex items-center gap-2">
+                      <span
+                        class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold"
+                        :class="logTypeClass(log.type)"
+                      >
+                        {{ logTypeText(log.type) }}
+                      </span>
+                      <p class="text-sm font-medium text-gray-900 truncate">
+                        {{ log.title }}
+                      </p>
+                    </div>
+                    <p class="mt-1 text-sm text-gray-500 truncate">
+                      {{ log.description }}
                     </p>
                   </div>
                   <div class="text-sm text-gray-500">
@@ -341,7 +352,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import AdminDashboard from '@/components/admin/AdminDashboard.vue';
@@ -350,6 +361,7 @@ import WelcomeMessage from '@/components/WelcomeMessage.vue';
 import AssessmentList from '../components/assessment/AssessmentList.vue';
 import SubmissionList from '../components/assessment/SubmissionList.vue';
 import { adminTabs } from '@/config/dashboardTabs';
+import { learningAPI } from '@/api';
 
 const authStore = useAuthStore();
 const route = useRoute();
@@ -379,26 +391,18 @@ const stats = ref({
   totalAssessments: 124
 });
 
-const systemLogs = ref([
-  {
-    message: '系统备份完成',
-    user: 'system',
-    action: '自动备份',
-    time: '10分钟前'
-  },
-  {
-    message: '新用户注册',
-    user: 'admin',
-    action: '用户创建',
-    time: '1小时前'
-  },
-  {
-    message: '课程内容更新',
-    user: 'teacher1',
-    action: '内容更新',
-    time: '2小时前'
-  }
-]);
+interface DashboardActivity {
+  title: string;
+  description: string;
+  timestamp?: string;
+  time?: string;
+  type?: string;
+}
+
+const systemLogs = ref<DashboardActivity[]>([]);
+const systemLogsLoading = ref(false);
+let dashboardRefreshTimer: number | null = null;
+let isFetchingDashboardSummary = false;
 
 // 状态变量
 const showSubmissionsModal = ref(false);
@@ -438,6 +442,127 @@ const assessments = ref([
     total_score: 100
   }
 ]);
+
+const formatRelativeTime = (timestamp?: string) => {
+  if (!timestamp) {
+    return '刚刚';
+  }
+
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return '刚刚';
+  }
+
+  const diffMs = Date.now() - date.getTime();
+  const diffMinutes = Math.floor(diffMs / (1000 * 60));
+
+  if (diffMinutes < 1) {
+    return '刚刚';
+  }
+  if (diffMinutes < 60) {
+    return `${diffMinutes}分钟前`;
+  }
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) {
+    return `${diffHours}小时前`;
+  }
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays === 1) {
+    return '昨天';
+  }
+  if (diffDays < 7) {
+    return `${diffDays}天前`;
+  }
+
+  return date.toLocaleDateString('zh-CN');
+};
+
+const logTypeText = (type?: string) => {
+  switch (type) {
+    case 'course':
+      return '课程';
+    case 'material':
+      return '课件';
+    case 'assessment':
+      return '评估';
+    case 'class':
+      return '班级';
+    case 'submission':
+      return '提交';
+    default:
+      return '系统';
+  }
+};
+
+const logTypeClass = (type?: string) => {
+  switch (type) {
+    case 'course':
+      return 'bg-blue-100 text-blue-700';
+    case 'material':
+      return 'bg-amber-100 text-amber-700';
+    case 'assessment':
+      return 'bg-violet-100 text-violet-700';
+    case 'class':
+      return 'bg-emerald-100 text-emerald-700';
+    case 'submission':
+      return 'bg-rose-100 text-rose-700';
+    default:
+      return 'bg-slate-100 text-slate-600';
+  }
+};
+
+const loadAdminDashboardSummary = async () => {
+  if (isFetchingDashboardSummary) {
+    return;
+  }
+
+  isFetchingDashboardSummary = true;
+  if (systemLogs.value.length === 0) {
+    systemLogsLoading.value = true;
+  }
+
+  try {
+    const response = await learningAPI.getTeacherDashboardSummary() as any;
+    systemLogs.value = Array.isArray(response?.recent_activities)
+      ? response.recent_activities.map((activity: DashboardActivity) => ({
+          ...activity,
+          time: formatRelativeTime(activity.timestamp)
+        }))
+      : [];
+  } catch (error) {
+    console.error('获取管理员系统日志失败:', error);
+  } finally {
+    systemLogsLoading.value = false;
+    isFetchingDashboardSummary = false;
+  }
+};
+
+const stopDashboardPolling = () => {
+  if (dashboardRefreshTimer !== null) {
+    window.clearInterval(dashboardRefreshTimer);
+    dashboardRefreshTimer = null;
+  }
+};
+
+const startDashboardPolling = () => {
+  stopDashboardPolling();
+  if (activeTab.value !== 'dashboard') {
+    return;
+  }
+
+  void loadAdminDashboardSummary();
+  dashboardRefreshTimer = window.setInterval(() => {
+    void loadAdminDashboardSummary();
+  }, 30000);
+};
+
+const handleWindowFocus = () => {
+  if (activeTab.value === 'dashboard') {
+    void loadAdminDashboardSummary();
+  }
+};
 
 // 方法
 const createAssessment = () => {
@@ -559,6 +684,27 @@ const takeAssessment = (assessment: any) => {
   console.log('开始评估', assessment);
   router.push(`/assessments/${assessment.id}/take`);
 };
+
+watch(
+  () => activeTab.value,
+  (tab) => {
+    if (tab === 'dashboard') {
+      startDashboardPolling();
+      return;
+    }
+    stopDashboardPolling();
+  },
+  { immediate: true }
+);
+
+onMounted(() => {
+  window.addEventListener('focus', handleWindowFocus);
+});
+
+onBeforeUnmount(() => {
+  stopDashboardPolling();
+  window.removeEventListener('focus', handleWindowFocus);
+});
 </script>
 
 <style scoped>

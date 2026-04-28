@@ -1,8 +1,11 @@
 import os
 import sys
 from sqlalchemy import inspect, text
+from dotenv import load_dotenv
 # DON'T CHANGE THIS !!!
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 # 禁用 ChromaDB telemetry 以防止崩溃
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
@@ -33,6 +36,12 @@ def resource_path(relative_path):
     
     return os.path.join(base_path, relative_path)
 
+def parse_csv_env(name, defaults=None):
+    raw_value = os.getenv(name, "")
+    values = [item.strip() for item in raw_value.split(",") if item.strip()]
+    return values or list(defaults or [])
+
+
 # Initialize Flask app
 app = Flask(__name__, instance_relative_config=True)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY') or 'change-me-before-deploy'
@@ -60,9 +69,19 @@ db.init_app(app)
 jwt.init_app(app)
 migrate.init_app(app, db)
 
-# 配置CORS，特别允许前端域名访问
+DEFAULT_CORS_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+CORS_ORIGINS = parse_csv_env("CORS_ORIGINS", DEFAULT_CORS_ORIGINS)
+
+# 配置CORS，生产环境通过 CORS_ORIGINS 显式加入前端域名。
 CORS(app, resources={r"/*": {
-    "origins": ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001", "http://localhost:5173", "http://127.0.0.1:5173", "*"],
+    "origins": CORS_ORIGINS,
     "supports_credentials": True,
     "allow_headers": ["Content-Type", "Authorization", "Accept", "Origin"],
     "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -78,10 +97,8 @@ def options_handler(path):
     # 获取来源
     origin = request.headers.get('Origin', '')
     # 特别允许前端域名
-    if origin in ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001", "http://localhost:5173", "http://127.0.0.1:5173"]:
+    if origin in CORS_ORIGINS:
         response.headers.add('Access-Control-Allow-Origin', origin)
-    else:
-        response.headers.add('Access-Control-Allow-Origin', '*')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept,Origin')
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
     response.headers.add('Access-Control-Allow-Credentials', 'true')

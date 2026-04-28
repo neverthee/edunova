@@ -1390,6 +1390,7 @@ interface HistoryRecord {
   display_title?: string;
   course_id?: number | null;
   chapter_id?: string;
+  created_at?: number | string;
   start_time: number;
   last_time: number;
   outline_type: 'course' | 'class';
@@ -3213,11 +3214,42 @@ function mapFoundationToPreset(foundation: string) {
   requirementDraft.value.customStudentPreset = foundation;
 }
 
+function inferActivitiesFromStructured(structured: StructuredRequirement): string[] {
+  const text = [
+    ...structured.teaching_flow.map(item => `${item.title} ${item.goal}`),
+    structured.style.interaction_level
+  ].join(' ');
+  if (!text.trim()) return [];
+
+  const inferred: string[] = [];
+  const rules: Array<{ label: string; keywords: string[] }> = [
+    { label: '小组讨论', keywords: ['小组讨论', '分组讨论', '讨论'] },
+    { label: '实验', keywords: ['实验', '操作'] },
+    { label: '角色扮演', keywords: ['角色扮演', '情景扮演'] },
+    { label: '游戏辩论', keywords: ['辩论', '游戏'] },
+    { label: '演讲', keywords: ['演讲', '展示', '汇报'] },
+    { label: '练习测验', keywords: ['练习', '测验', '反馈', '随堂'] }
+  ];
+
+  for (const rule of rules) {
+    if (rule.keywords.some(keyword => text.includes(keyword))) {
+      inferred.push(rule.label);
+    }
+  }
+  return inferred;
+}
+
 function applyStructuredRequirementToDraft(structured: StructuredRequirement) {
   if (structured.key_points.length > 0) requirementDraft.value.keyPoints = structured.key_points.join('；');
   if (structured.difficult_points.length > 0) requirementDraft.value.difficultPoints = structured.difficult_points.join('；');
   if (structured.style.teaching_style) requirementDraft.value.teachingStyle = structured.style.teaching_style;
   if (structured.student_profile.foundation) mapFoundationToPreset(structured.student_profile.foundation);
+  if (requirementDraft.value.activities.length === 0) {
+    const inferredActivities = inferActivitiesFromStructured(structured);
+    if (inferredActivities.length > 0) {
+      requirementDraft.value.activities = inferredActivities;
+    }
+  }
 }
 
 function createEmptyStructuredRequirement(): StructuredRequirement {
