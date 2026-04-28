@@ -584,6 +584,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, onBeforeUnmount, computed, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { ragAiAPI, materialAPI, courseAPI, knowledgeBaseAPI } from '../../api';
 import notificationService from '../../services/notificationService';
 import dialogService from '../../services/dialogService';
@@ -593,6 +594,9 @@ const props = withDefaults(defineProps<{
 }>(), {
   hideHeader: false
 });
+
+const route = useRoute();
+const router = useRouter();
 
 // 类型定义
 interface Course {
@@ -1322,8 +1326,38 @@ async function removeFromKnowledgeBase(item: KnowledgeItem) {
 
 // 在文件中搜索
 function searchInFile(item: KnowledgeItem) {
-  // 这里可以跳转到搜索页面或打开搜索对话框
-  notificationService.info('功能开发中', `搜索功能开发中，文件: ${getFileName(item.file_path)}`);
+  if (item.status !== 'completed') {
+    notificationService.warning('暂不可用', '请等待该文件处理完成后再进入智能助手检索');
+    return;
+  }
+
+  if (!item.file_path) {
+    notificationService.error('跳转失败', '未找到该知识库文件路径');
+    return;
+  }
+
+  const fileName = getFileName(item.file_path);
+  const nextQuery = {
+    ...route.query,
+    activeTab: 'ai-assistant',
+    ragMode: 'file',
+    ragAutostart: '1',
+    ragFilePath: item.file_path,
+    ragFileName: fileName,
+    ragPurpose: item.purpose || 'general',
+    ragPrompt: `请基于知识库文件《${fileName}》回答，并先概述这份资料的主要内容。`
+  } as Record<string, string>;
+
+  if (item.course_id !== null && item.course_id !== undefined) {
+    nextQuery.courseId = String(item.course_id);
+  } else {
+    delete nextQuery.courseId;
+  }
+
+  router.push({
+    path: '/teacher',
+    query: nextQuery
+  });
 }
 
 // 工具函数

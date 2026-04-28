@@ -29,6 +29,7 @@ import uuid
 import threading
 import functools
 from backend.api.rag_ai import (
+    cleanup_stale_material_and_queue_records,
     get_api_config,
     purge_knowledge_assets_for_material,
     purge_knowledge_assets_for_queue_item,
@@ -900,6 +901,58 @@ def is_teacher_or_admin(user):
     return bool(user and user.role in ['teacher', 'admin'])
 
 
+def ensure_course_read_access(course, current_user):
+    if not course:
+        return jsonify({'error': 'Course not found'}), 404
+
+    if current_user:
+        if current_user.role == 'admin':
+            return None
+        if current_user.role == 'teacher':
+            if course.teacher_id != current_user.id:
+                return jsonify({'error': '无权访问该课程'}), 403
+            return None
+        if current_user.role == 'student':
+            if course.is_public or current_user in (course.students or []):
+                return None
+            return jsonify({'error': 'Course not found'}), 404
+
+    if course.is_public:
+        return None
+
+    return jsonify({'error': '未登录，无法访问该课程'}), 401
+
+
+def ensure_course_manage_access(course, current_user):
+    if not course:
+        return jsonify({'error': 'Course not found'}), 404
+    if not current_user:
+        return jsonify({'error': '未登录，无法操作该课程'}), 401
+    if current_user.role == 'admin':
+        return None
+    if current_user.role != 'teacher' or course.teacher_id != current_user.id:
+        return jsonify({'error': '无权操作该课程'}), 403
+    return None
+
+
+def ensure_material_read_access(material, current_user):
+    if not material:
+        return jsonify({'error': 'Material not found'}), 404
+    return ensure_course_read_access(material.course, current_user)
+
+
+def ensure_material_manage_access(material, current_user):
+    if not material:
+        return jsonify({'error': 'Material not found'}), 404
+    return ensure_course_manage_access(material.course, current_user)
+
+
+def ensure_assessment_manage_access(assessment, current_user):
+    if not assessment:
+        return jsonify({'error': 'Assessment not found'}), 404
+    return ensure_course_manage_access(assessment.course, current_user)
+
+
 def is_recently_created(created_at, updated_at, threshold_seconds=5):
     if not created_at or not updated_at:
         return False
@@ -1047,7 +1100,13 @@ def get_teacher_dashboard_summary():
 
 
 def apply_assessment_visibility_filter(query, current_user):
-    if current_user and current_user.role == 'student':
+    if not current_user:
+        return query.filter(Assessment.id == -1)
+
+    if current_user.role == 'teacher':
+        return query.join(Course, Assessment.course_id == Course.id).filter(Course.teacher_id == current_user.id)
+
+    if current_user.role == 'student':
         query = query.join(
             assessment_publish_classes,
             Assessment.id == assessment_publish_classes.c.assessment_id,
@@ -2443,7 +2502,12 @@ def get_courses():
     # 构建查询
     query = Course.query
 
-    if current_user and current_user.role == 'student':
+    if current_user:
+        if current_user.role == 'student':
+            query = query.filter(Course.is_public.is_(True))
+        elif current_user.role == 'teacher':
+            query = query.filter(Course.teacher_id == current_user.id)
+    else:
         query = query.filter(Course.is_public.is_(True))
     
     # 应用过滤条件
@@ -2494,12 +2558,9 @@ def get_course(course_id):
 
     # 查找课程
     course = Course.query.get(course_id)
-    if not course:
-        return jsonify({'error': 'Course not found'}), 404
-
-    if current_user and current_user.role == 'student' and not course.is_public:
-        if course not in (current_user.courses_enrolled or []):
-            return jsonify({'error': 'Course not found'}), 404
+    access_error = ensure_course_read_access(course, current_user)
+    if access_error:
+        return access_error
     
     # 获取课程详情
     course_data = course.to_dict()
@@ -2583,6 +2644,10 @@ def unenroll_course(course_id):
 # @jwt_required()  # 暂时禁用JWT认证要求
 def create_course():
     """创建新课程"""
+    current_user = get_current_user_from_request()
+    if not is_teacher_or_admin(current_user):
+        return jsonify({'error': '需要教师或管理员权限'}), 403
+
     # 检查是否有表单数据（包含文件上传）或JSON数据
     if request.content_type and 'multipart/form-data' in request.content_type:
         # 处理表单数据和文件上传
@@ -2623,9 +2688,16 @@ def create_course():
     if 'name' not in data:
         return jsonify({'error': 'Course name is required'}), 400
     
-    # 设置教师ID
-    # user_id = get_jwt_identity()  # 暂时注释掉
-    user_id = 2  # 使用默认教师ID
+    teacher_id = current_user.id
+    if current_user.role == 'admin' and data.get('teacher_id') not in (None, '', 'null'):
+        try:
+            requested_teacher_id = int(data.get('teacher_id'))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'teacher_id 必须是整数'}), 400
+        requested_teacher = User.query.get(requested_teacher_id)
+        if not requested_teacher or requested_teacher.role != 'teacher':
+            return jsonify({'error': 'teacher_id 对应的教师不存在'}), 400
+        teacher_id = requested_teacher_id
     
     # 创建新课程
     new_course = Course(
@@ -2635,7 +2707,7 @@ def create_course():
         difficulty=data.get('difficulty', 'beginner'),
         is_public=data.get('is_public', True),
         cover_image=cover_image_path,
-        teacher_id=user_id
+        teacher_id=teacher_id
     )
     
     db.session.add(new_course)
@@ -2648,18 +2720,12 @@ def create_course():
 # @jwt_required()  # 暂时禁用JWT认证要求
 def update_course(course_id):
     """更新课程信息"""
+    current_user = get_current_user_from_request()
     # 查找课程
     course = Course.query.get(course_id)
-    if not course:
-        return jsonify({'error': 'Course not found'}), 404
-    
-    # 检查权限
-    # user_id = get_jwt_identity()
-    # claims = get_jwt()
-    # role = claims.get('role')
-    
-    # if role != 'admin' and course.teacher_id != user_id:
-    #     return jsonify({'error': 'Permission denied'}), 403
+    access_error = ensure_course_manage_access(course, current_user)
+    if access_error:
+        return access_error
     
     # 检查是否有表单数据（包含文件上传）或JSON数据
     if request.content_type and 'multipart/form-data' in request.content_type:
@@ -2720,18 +2786,12 @@ def update_course(course_id):
 # @jwt_required()  # 暂时禁用JWT认证要求
 def delete_course(course_id):
     """删除课程"""
+    current_user = get_current_user_from_request()
     # 查找课程
     course = Course.query.get(course_id)
-    if not course:
-        return jsonify({'error': 'Course not found'}), 404
-    
-    # 检查权限
-    # user_id = get_jwt_identity()
-    # claims = get_jwt()
-    # role = claims.get('role')
-    
-    # if role != 'admin' and course.teacher_id != user_id:
-    #     return jsonify({'error': 'Permission denied'}), 403
+    access_error = ensure_course_manage_access(course, current_user)
+    if access_error:
+        return access_error
     
     course_data = course.to_dict()
 
@@ -2835,29 +2895,25 @@ def delete_course(course_id):
 def get_my_courses():
     current_user = get_current_user_from_request()
 
-    if current_user:
-        if current_user.role == 'student':
-            my_courses = db.session.query(Course).join(
-                Course.students
-            ).filter(
-                User.id == current_user.id
-            ).order_by(
-                Course.updated_at.desc(),
-                Course.created_at.desc()
-            ).all()
-        elif current_user.role == 'admin':
-            my_courses = Course.query.order_by(
-                Course.updated_at.desc(),
-                Course.created_at.desc()
-            ).all()
-        else:
-            my_courses = Course.query.filter_by(teacher_id=current_user.id).order_by(
-                Course.updated_at.desc(),
-                Course.created_at.desc()
-            ).all()
+    if not current_user:
+        return jsonify({'error': '未登录，无法获取课程列表'}), 401
+
+    if current_user.role == 'student':
+        my_courses = db.session.query(Course).join(
+            Course.students
+        ).filter(
+            User.id == current_user.id
+        ).order_by(
+            Course.updated_at.desc(),
+            Course.created_at.desc()
+        ).all()
+    elif current_user.role == 'admin':
+        my_courses = Course.query.order_by(
+            Course.updated_at.desc(),
+            Course.created_at.desc()
+        ).all()
     else:
-        # 兼容旧的无鉴权调用，保持原有教师视角默认行为
-        my_courses = Course.query.filter_by(teacher_id=2).order_by(
+        my_courses = Course.query.filter_by(teacher_id=current_user.id).order_by(
             Course.updated_at.desc(),
             Course.created_at.desc()
         ).all()
@@ -2872,11 +2928,15 @@ def get_my_courses():
 # @jwt_required()  # 暂时禁用JWT认证要求
 def get_course_materials(course_id):
     """获取课程的所有课件资源"""
+    current_user = get_current_user_from_request()
     # 检查课程是否存在
     course = Course.query.get(course_id)
-    if not course:
-        return jsonify({'error': 'Course not found'}), 404
-    
+    access_error = ensure_course_read_access(course, current_user)
+    if access_error:
+        return access_error
+
+    cleanup_stale_material_and_queue_records(course_id=course_id)
+
     # 获取课程的所有课件
     materials = Material.query.filter_by(course_id=course_id).all()
     has_changes = False
@@ -2896,10 +2956,12 @@ def get_course_materials(course_id):
 # @jwt_required()  # 暂时禁用JWT认证要求
 def upload_material(course_id):
     """上传课件资源"""
+    current_user = get_current_user_from_request()
     # 检查课程是否存在
     course = Course.query.get(course_id)
-    if not course:
-        return jsonify({'error': 'Course not found'}), 404
+    access_error = ensure_course_manage_access(course, current_user)
+    if access_error:
+        return access_error
     
     # 检查是否有文件上传
     if 'file' not in request.files:
@@ -3028,10 +3090,12 @@ def upload_material(course_id):
 # @jwt_required()  # 暂时禁用JWT认证要求
 def get_material(material_id):
     """获取单个课件详情"""
+    current_user = get_current_user_from_request()
     # 查找材料
     material = Material.query.get(material_id)
-    if not material:
-        return jsonify({'error': 'Material not found'}), 404
+    access_error = ensure_material_read_access(material, current_user)
+    if access_error:
+        return access_error
     
     if ensure_material_preview(material):
         db.session.commit()
@@ -3046,10 +3110,12 @@ def get_material(material_id):
 # @jwt_required()  # 暂时禁用JWT认证要求
 def update_material(material_id):
     """更新课件信息"""
+    current_user = get_current_user_from_request()
     # 查找材料
     material = Material.query.get(material_id)
-    if not material:
-        return jsonify({'error': 'Material not found'}), 404
+    access_error = ensure_material_manage_access(material, current_user)
+    if access_error:
+        return access_error
     
     # 获取请求数据
     data = request.json
@@ -3080,10 +3146,12 @@ def update_material(material_id):
 # @jwt_required()  # 暂时禁用JWT认证要求
 def download_material(material_id):
     """下载课件资源"""
+    current_user = get_current_user_from_request()
     # 查找材料
     material = Material.query.get(material_id)
-    if not material:
-        return jsonify({'error': 'Material not found'}), 404
+    access_error = ensure_material_read_access(material, current_user)
+    if access_error:
+        return access_error
     
     # 获取文件路径
     file_path = os.path.join(current_app.root_path, material.file_path.lstrip('/'))
@@ -3116,10 +3184,12 @@ def download_material(material_id):
 # @jwt_required()  # 暂时禁用JWT认证要求
 def delete_material(material_id):
     """删除课件资源"""
+    current_user = get_current_user_from_request()
     # 查找材料
     material = Material.query.get(material_id)
-    if not material:
-        return jsonify({'error': 'Material not found'}), 404
+    access_error = ensure_material_manage_access(material, current_user)
+    if access_error:
+        return access_error
     
     material_dict = build_material_dict(material)
     try:
@@ -3141,10 +3211,12 @@ def delete_material(material_id):
 # @jwt_required()  # 暂时禁用JWT认证要求
 def get_course_students(course_id):
     """获取课程的所有学生"""
+    current_user = get_current_user_from_request()
     # 检查课程是否存在
     course = Course.query.get(course_id)
-    if not course:
-        return jsonify({'error': 'Course not found'}), 404
+    access_error = ensure_course_manage_access(course, current_user)
+    if access_error:
+        return access_error
     
     # 获取查询参数
     search = request.args.get('search', '')
@@ -3201,10 +3273,12 @@ def get_course_students(course_id):
 # @jwt_required()  # 暂时禁用JWT认证要求
 def get_available_students(course_id):
     """获取可添加到课程的学生"""
+    current_user = get_current_user_from_request()
     # 检查课程是否存在
     course = Course.query.get(course_id)
-    if not course:
-        return jsonify({'error': 'Course not found'}), 404
+    access_error = ensure_course_manage_access(course, current_user)
+    if access_error:
+        return access_error
     
     # 获取当前课程的所有学生ID
     current_student_ids = [student.id for student in course.students]
@@ -3236,10 +3310,12 @@ def get_available_students(course_id):
 # @jwt_required()  # 暂时禁用JWT认证要求
 def add_students_to_course(course_id):
     """添加学生到课程"""
+    current_user = get_current_user_from_request()
     # 检查课程是否存在
     course = Course.query.get(course_id)
-    if not course:
-        return jsonify({'error': 'Course not found'}), 404
+    access_error = ensure_course_manage_access(course, current_user)
+    if access_error:
+        return access_error
     
     # 获取请求数据
     data = request.json
@@ -3293,10 +3369,12 @@ def add_students_to_course(course_id):
 # @jwt_required()  # 暂时禁用JWT认证要求
 def remove_student_from_course(course_id, student_id):
     """从课程中移除学生"""
+    current_user = get_current_user_from_request()
     # 检查课程是否存在
     course = Course.query.get(course_id)
-    if not course:
-        return jsonify({'error': 'Course not found'}), 404
+    access_error = ensure_course_manage_access(course, current_user)
+    if access_error:
+        return access_error
     
     # 查找学生
     student = User.query.get(student_id)
@@ -3658,9 +3736,15 @@ def get_assessment(assessment_id):
         return jsonify({'error': 'Assessment not found'}), 404
 
     current_user = get_current_user_from_request()
-    if current_user and current_user.role == 'student':
+    if current_user and current_user.role == 'teacher':
+        access_error = ensure_assessment_manage_access(assessment, current_user)
+        if access_error:
+            return access_error
+    elif current_user and current_user.role == 'student':
         if not assessment.is_published or not assessment_visible_to_student(assessment.id, current_user.id):
             return jsonify({'error': 'Assessment not found'}), 404
+    elif not current_user:
+        return jsonify({'error': '未登录，无法访问评估'}), 401
     
     return jsonify(assessment.to_dict())
 
@@ -3844,6 +3928,10 @@ def assessments_options():
 @api_error_handler
 def create_assessment():
     """创建新的评估"""
+    current_user = get_current_user_from_request()
+    if not is_teacher_or_admin(current_user):
+        return jsonify({'error': '需要教师或管理员权限'}), 403
+
     # 处理OPTIONS请求
     if request.method == 'OPTIONS':
         response = make_response()
@@ -3861,6 +3949,11 @@ def create_assessment():
         for field in required_fields:
             if field not in data:
                 return jsonify({'error': f'Missing required field: {field}'}), 400
+
+        course = Course.query.get(data['course_id'])
+        access_error = ensure_course_manage_access(course, current_user)
+        if access_error:
+            return access_error
         
         # 处理日期字段
         start_date = None
@@ -3895,7 +3988,7 @@ def create_assessment():
             is_published=data.get('is_published', False),
             is_active=data.get('is_active', True),
             questions=questions_json,  # 直接设置questions字段
-            created_by=1  # 暂时硬编码为1，实际应该使用 get_jwt_identity()
+            created_by=current_user.id
         )
         
         # 保存评估
@@ -3957,6 +4050,11 @@ def update_assessment(assessment_id):
         assessment = Assessment.query.get(assessment_id)
         if not assessment:
             return jsonify({'error': 'Assessment not found'}), 404
+
+        current_user = get_current_user_from_request()
+        access_error = ensure_assessment_manage_access(assessment, current_user)
+        if access_error:
+            return access_error
         
         data = request.json
         current_app.logger.info(f"接收到更新评估请求: {assessment_id}, 数据: {data}")
@@ -4051,8 +4149,10 @@ def assessment_options(assessment_id):
 def delete_assessment(assessment_id):
     """删除评估"""
     assessment = Assessment.query.get(assessment_id)
-    if not assessment:
-        return jsonify({'error': 'Assessment not found'}), 404
+    current_user = get_current_user_from_request()
+    access_error = ensure_assessment_manage_access(assessment, current_user)
+    if access_error:
+        return access_error
     
     assessment_data = assessment.to_dict()
     db.session.delete(assessment)

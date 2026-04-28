@@ -18,6 +18,7 @@ from backend.models.learning import ChatHistory, KnowledgeBaseQueue
 from backend.extensions import db
 from backend.models.course import Course
 from backend.models.material import Material
+from backend.models.user import User
 from backend.rag.lesson_plan_support import (
     build_game_plan_seed_from_core_spec,
     build_query_terms,
@@ -124,6 +125,48 @@ def normalize_knowledge_file_path(path_value: Any) -> Optional[str]:
     if normalized.startswith("uploads/"):
         normalized = normalized[len("uploads/"):]
     return normalized or None
+
+
+def resolve_upload_path(path_value: Any) -> Optional[str]:
+    normalized = normalize_knowledge_file_path(path_value)
+    if not normalized:
+        return None
+    upload_root = str(current_app.config.get("UPLOAD_FOLDER") or "").strip()
+    if not upload_root:
+        return None
+    absolute_path = os.path.join(upload_root, normalized.replace("/", os.sep))
+    if os.path.exists(absolute_path):
+        return absolute_path
+    return None
+
+
+def get_authenticated_user() -> Optional[User]:
+    try:
+        user_id = get_jwt_identity()
+        if user_id in (None, "", "null"):
+            return None
+        return User.query.get(int(user_id))
+    except Exception:
+        return None
+
+
+def ensure_course_teacher_access(course: Optional[Course], current_user: Optional[User]):
+    if not course:
+        return jsonify({'status': 'error', 'message': '课程不存在'}), 404
+    if not current_user:
+        return jsonify({'status': 'error', 'message': '未登录，无法访问课程资源'}), 401
+    if current_user.role == 'admin':
+        return None
+    if current_user.role != 'teacher' or course.teacher_id != current_user.id:
+        return jsonify({'status': 'error', 'message': '无权访问该课程资源'}), 403
+    return None
+
+
+def ensure_queue_item_teacher_access(queue_item: Optional[KnowledgeBaseQueue], current_user: Optional[User]):
+    if not queue_item:
+        return jsonify({'status': 'error', 'message': '队列项不存在'}), 404
+    course = Course.query.get(queue_item.course_id) if queue_item.course_id else None
+    return ensure_course_teacher_access(course, current_user)
 
 
 KNOWLEDGE_FILE_SCOPE_PATTERNS = (
@@ -247,6 +290,7 @@ def _build_kb_file_item_label(queue_item: KnowledgeBaseQueue) -> str:
 
 
 def build_knowledge_file_listing_reply(course_id: Any, course_name: str = "") -> str:
+    cleanup_stale_material_and_queue_records(course_id=course_id)
     queue_items = (
         KnowledgeBaseQueue.query
         .filter_by(course_id=course_id)
@@ -287,6 +331,7 @@ def build_knowledge_file_listing_reply(course_id: Any, course_name: str = "") ->
 
 
 def _get_knowledge_queue_items(course_id: Any) -> List[KnowledgeBaseQueue]:
+    cleanup_stale_material_and_queue_records(course_id=course_id)
     return (
         KnowledgeBaseQueue.query
         .filter_by(course_id=course_id)
@@ -3121,6 +3166,48 @@ def purge_knowledge_assets_for_material(material: Material) -> Dict[str, Any]:
         normalized_paths=[normalized_path] if normalized_path else [],
     )
 
+
+def cleanup_stale_material_and_queue_records(course_id: Optional[Any] = None) -> Dict[str, Any]:
+    material_query = Material.query
+    queue_query = KnowledgeBaseQueue.query
+    if course_id not in (None, ""):
+        material_query = material_query.filter_by(course_id=course_id)
+        queue_query = queue_query.filter_by(course_id=course_id)
+
+    stale_materials = [
+        material for material in material_query.all()
+        if material.file_path and not resolve_upload_path(material.file_path)
+    ]
+    stale_queue_items = [
+        queue_item for queue_item in queue_query.all()
+        if queue_item.file_path and not resolve_upload_path(queue_item.file_path)
+    ]
+
+    deleted_material_ids = set()
+    deleted_queue_ids = set()
+
+    for material in stale_materials:
+        if material.id in deleted_material_ids:
+            continue
+        cleanup_summary = purge_knowledge_assets_for_material(material)
+        deleted_material_ids.update(cleanup_summary.get("deleted_material_ids", []))
+        deleted_queue_ids.update(cleanup_summary.get("deleted_queue_ids", []))
+
+    for queue_item in stale_queue_items:
+        if queue_item.id in deleted_queue_ids:
+            continue
+        cleanup_summary = purge_knowledge_assets_for_queue_item(queue_item)
+        deleted_material_ids.update(cleanup_summary.get("deleted_material_ids", []))
+        deleted_queue_ids.update(cleanup_summary.get("deleted_queue_ids", []))
+
+    if deleted_material_ids or deleted_queue_ids:
+        db.session.commit()
+
+    return {
+        "deleted_material_ids": sorted(deleted_material_ids),
+        "deleted_queue_ids": sorted(deleted_queue_ids),
+    }
+
 def _collect_generated_material_ids_from_payloads(payloads: List[Dict[str, Any]]) -> List[int]:
     material_ids = set()
     for payload in payloads:
@@ -4778,6 +4865,7 @@ def structure_teaching_elements():
 def import_example_files():
     """Import local example files into course materials and queue them to knowledge base."""
     app_logger = current_app.logger
+    current_user = get_authenticated_user()
     data = request.json or {}
     course_id = data.get('course_id')
     if not course_id:
@@ -4792,8 +4880,9 @@ def import_example_files():
         return jsonify({'status': 'error', 'message': 'purpose 浠呮敮鎸?general 鎴?lesson_plan'}), 400
 
     course = Course.query.get(course_id)
-    if not course:
-        return jsonify({'status': 'error', 'message': '璇剧▼涓嶅瓨鍦?'}), 404
+    access_error = ensure_course_teacher_access(course, current_user)
+    if access_error:
+        return access_error
 
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     example_dir = os.path.join(project_root, 'example')
@@ -4863,7 +4952,7 @@ def import_example_files():
             imported_count += 1
 
         queue_file_path = str(material.file_path or "").replace('/uploads/', '').lstrip('/')
-        existing_queue = check_file_exists_by_hash(src_hash)
+        existing_queue = check_file_exists_by_hash(src_hash, course_id=course_id)
         if existing_queue:
             if existing_queue.purpose == 'general' and purpose == 'lesson_plan':
                 existing_queue.purpose = purpose
@@ -4929,6 +5018,7 @@ def chat_with_ai():
     conversation_id = data.get('conversation_id')  # 鍙€夊弬鏁?
     stream = data.get('stream', False)  # 鏄惁浣跨敤娴佸紡杈撳嚭锛岄粯璁や负False
     use_rag = data.get('use_rag', True)  # 鏄惁浣跨敤RAG锛岄粯璁や负True
+    selected_knowledge_items = parse_selected_knowledge_items(data.get('selectedKnowledgeItems', []))
     
     # 瀵逛簬GET璇锋眰锛屽皢stream鍜寀se_rag鍙傛暟杞崲涓哄竷灏斿€?
     if request.method == 'GET':
@@ -4989,6 +5079,7 @@ def chat_with_ai():
         resolved_course = Course.query.get(course_id) if course_id else None
         course_info = ""
         course_context_prompt = ""
+        selected_knowledge_prompt = ""
         if resolved_course:
             course_info = f"""
                         课程名称: {resolved_course.name}
@@ -5005,6 +5096,18 @@ def chat_with_ai():
             app_logger.info(f"chat request resolved course context: {resolved_course.name}")
         elif course_id:
             app_logger.warning(f"chat request course not found, course_id={course_id}")
+        if selected_knowledge_items:
+            selected_file_names = []
+            for item in selected_knowledge_items[:5]:
+                file_name = str(item.get('file_name') or os.path.basename(str(item.get('file_path') or '')) or '').strip()
+                if file_name:
+                    selected_file_names.append(file_name)
+            if selected_file_names:
+                selected_knowledge_prompt = (
+                    "当前用户已经在界面中明确指定只围绕以下知识库文件检索和回答："
+                    f"{'、'.join(selected_file_names)}。"
+                    "除非用户主动要求扩展范围，否则不要引用其他知识库文件。"
+                )
 
         # 鍑嗗API璇锋眰澶?
         headers = {
@@ -5049,7 +5152,7 @@ def chat_with_ai():
         fallback_instruction = ""
         context_mode = "vector"
         
-        if use_rag and course_id:
+        if use_rag and (course_id or selected_knowledge_items):
             # 纭繚RAG妯″潡宸插垵濮嬪寲
             if not RAG_AVAILABLE:
                 initialize_rag()
@@ -5062,7 +5165,9 @@ def chat_with_ai():
                         app_logger.warning(f"鏈壘鍒拌绋嬩俊鎭紝璇剧▼ID: {course_id}")
                     
                     # 浣跨敤RAG妫€绱㈢浉鍏虫枃妗?
-                    app_logger.info(f"浣跨敤RAG妫€绱紝璇剧▼ID: {course_id}")
+                    app_logger.info(
+                        f"浣跨敤RAG妫€绱紝璇剧▼ID: {course_id}, selected_items={len(selected_knowledge_items)}"
+                    )
                     
                     # 纭繚hybrid_retriever涓嶆槸None
                     if hybrid_retriever is None:
@@ -5084,7 +5189,30 @@ def chat_with_ai():
                             )
                             use_rag = False
                     else:
-                        retrieved_docs = hybrid_retriever(message, str(course_id))
+                        if selected_knowledge_items:
+                            query_parts = [message]
+                            for item in selected_knowledge_items[:8]:
+                                file_name = str(item.get('file_name') or '').strip()
+                                knowledge_point = str(item.get('knowledge_point') or '').strip()
+                                if file_name:
+                                    query_parts.append(f"selected material {file_name}")
+                                if knowledge_point:
+                                    query_parts.append(f"focus knowledge point {knowledge_point}")
+
+                            search_query = ' '.join(part for part in query_parts if part)
+                            namespaces = build_knowledge_retrieval_namespaces(course_id, selected_knowledge_items)
+                            merged_docs = []
+                            for namespace in namespaces:
+                                namespace_docs = hybrid_retriever(search_query, namespace) or []
+                                if namespace_docs:
+                                    merged_docs.extend(namespace_docs)
+                            retrieved_docs = dedupe_retrieved_docs(merged_docs)
+                            retrieved_docs = filter_retrieved_docs_by_selected_items(
+                                retrieved_docs,
+                                selected_knowledge_items
+                            )
+                        else:
+                            retrieved_docs = hybrid_retriever(message, str(course_id))
                     
                     # 添加调试日志，查看文档元数据
                     app_logger.info(f"retrieved docs: {len(retrieved_docs) if retrieved_docs else 0}")
@@ -5101,6 +5229,7 @@ def chat_with_ai():
                             context = format_docs(retrieved_docs)
                         
                         # 鎻愬彇鏂囨。婧愪俊鎭?- 鏀硅繘鐨勭増鏈?
+                        selected_knowledge_lookup = _build_selected_knowledge_lookup(selected_knowledge_items)
                         for doc in retrieved_docs:
                             # 妫€鏌ュ绉嶅彲鑳界殑鍏冩暟鎹瓧娈?
                             source_url = None
@@ -5116,8 +5245,15 @@ def chat_with_ai():
                             
                             # 如果找到了源URL
                             if source_url:
+                                selected_mapping = _match_selected_knowledge_item(
+                                    source_url,
+                                    source_title,
+                                    selected_knowledge_lookup
+                                )
                                 # 灏濊瘯浠庝笉鍚岀殑鍏冩暟鎹瓧娈佃幏鍙栨爣棰?
-                                if 'title' in doc.metadata and doc.metadata['title']:
+                                if selected_mapping.get('file_name'):
+                                    source_title = str(selected_mapping.get('file_name')).strip()
+                                elif 'title' in doc.metadata and doc.metadata['title']:
                                     source_title = doc.metadata['title']
                                 elif 'file_name' in doc.metadata and doc.metadata['file_name']:
                                     source_title = doc.metadata['file_name']
@@ -5189,6 +5325,7 @@ def chat_with_ai():
 浣犳鍦ㄨ緟鍔╀互涓嬭绋嬬殑瀛︿範锛?
 {course_info}
 {course_context_prompt}
+{selected_knowledge_prompt}
 
 璇峰熀浜庝互涓嬪弬鑰冭祫鏂欏洖绛旂敤鎴风殑闂銆傝閬靛惊浠ヤ笅鎸囧鍘熷垯锛?
 
@@ -5232,6 +5369,7 @@ def chat_with_ai():
 浣犳鍦ㄨ緟鍔╀互涓嬭绋嬬殑瀛︿範锛?
 {course_info}
 {course_context_prompt}
+{selected_knowledge_prompt}
 
 当前没有直接拿到教材原文片段，但拿到了教材的结构化索引摘要、目录和关键词。请先基于这些结构化线索回答，并明确哪些结论来自教材摘要，哪些是你补充的通用解释。不要提及内部检索失败。
 
@@ -5264,7 +5402,7 @@ def chat_with_ai():
                 use_rag = False
         
         # 濡傛灉涓嶄娇鐢≧AG鎴朢AG妫€绱㈠け璐?
-        if not use_rag or not course_id or not context:
+        if not use_rag or (not course_id and not selected_knowledge_items) or not context:
             # 鍑嗗鏅€氬璇濈殑API璇锋眰浣?
             payload = {
                 "model": model_name,
@@ -5274,6 +5412,7 @@ def chat_with_ai():
                         "content": (
                             "你是 易度新星 EduNova 智能学习助手，回答时优先结合当前会话中的课程上下文。"
                             f"{course_context_prompt}"
+                            f"{selected_knowledge_prompt}"
                             + (
                                 f"\n当前课程信息：\n{course_info}\n"
                                 if course_info
@@ -5669,10 +5808,12 @@ def get_learning_recommendations():
         }), 500
 
 @rag_api.route('/knowledge/add', methods=['POST'])
+@jwt_required()
 def add_to_knowledge_base():
     """Add a file to the knowledge base processing queue"""
     # 鏈湴瀵煎叆浠ラ伩鍏嶅惊鐜鍏?
     from backend.tasks.rag_processor import start_processing_queue_item
+    current_user = get_authenticated_user()
     
     data = request.json
     if not data:
@@ -5686,6 +5827,11 @@ def add_to_knowledge_base():
         return jsonify({'status': 'error', 'message': '鍙傛暟涓嶅畬鏁?'}), 400
     if not purpose:
         return jsonify({'status': 'error', 'message': 'purpose 浠呮敮鎸?general 鎴?lesson_plan'}), 400
+
+    course = Course.query.get(course_id)
+    access_error = ensure_course_teacher_access(course, current_user)
+    if access_error:
+        return access_error
 
     normalized_file_path = normalize_knowledge_file_path(file_path)
     if not normalized_file_path:
@@ -5772,13 +5918,22 @@ def add_to_knowledge_base():
     })
 
 @rag_api.route('/knowledge/status', methods=['GET'])
+@jwt_required()
 def get_knowledge_base_status():
     """Get the status of the knowledge base processing queue"""
+    current_user = get_authenticated_user()
     course_id = request.args.get('course_id')
+    cleanup_stale_material_and_queue_records(course_id=course_id)
 
     query = KnowledgeBaseQueue.query
     if course_id:
+        course = Course.query.get(course_id)
+        access_error = ensure_course_teacher_access(course, current_user)
+        if access_error:
+            return access_error
         query = query.filter_by(course_id=course_id)
+    elif current_user and current_user.role != 'admin':
+        query = query.join(Course, KnowledgeBaseQueue.course_id == Course.id).filter(Course.teacher_id == current_user.id)
 
     queue_items = query.order_by(
         KnowledgeBaseQueue.created_at.desc(),
@@ -5813,9 +5968,11 @@ def get_supported_file_types():
     })
 
 @rag_api.route('/knowledge/process_now', methods=['POST'])
+@jwt_required()
 def process_knowledge_now():
     """Process a file immediately and add it to the knowledge base."""
     try:
+        current_user = get_authenticated_user()
         data = request.json
         if not data:
             return jsonify({'status': 'error', 'message': '鏃犳晥鐨勮姹傛暟鎹?'}), 400
@@ -5825,6 +5982,11 @@ def process_knowledge_now():
         
         if not course_id or not file_path:
             return jsonify({'status': 'error', 'message': '缂哄皯蹇呰鍙傛暟'}), 400
+
+        course = Course.query.get(course_id)
+        access_error = ensure_course_teacher_access(course, current_user)
+        if access_error:
+            return access_error
 
         normalized_file_path = normalize_knowledge_file_path(file_path)
         if not normalized_file_path:
@@ -5879,9 +6041,11 @@ def process_knowledge_now():
         }), 500
 
 @rag_api.route('/knowledge/remove', methods=['DELETE'])
+@jwt_required()
 def remove_from_knowledge_base():
     """Remove a file from the knowledge base"""
     try:
+        current_user = get_authenticated_user()
         data = request.json
         if not data:
             return jsonify({'status': 'error', 'message': '鏃犳晥鐨勮姹傛暟鎹?'}), 400
@@ -5893,8 +6057,9 @@ def remove_from_knowledge_base():
         
         # 鏌ユ壘闃熷垪椤?
         queue_item = db.session.get(KnowledgeBaseQueue, queue_id)
-        if not queue_item:
-            return jsonify({'status': 'error', 'message': '队列项不存在'}), 404
+        access_error = ensure_queue_item_teacher_access(queue_item, current_user)
+        if access_error:
+            return access_error
 
         cleanup_summary = purge_knowledge_assets_for_queue_item(queue_item)
         db.session.commit()
@@ -5914,9 +6079,11 @@ def remove_from_knowledge_base():
         }), 500
 
 @rag_api.route('/knowledge/clear-queue', methods=['DELETE'])
+@jwt_required()
 def clear_knowledge_base_queue():
     """Clear the knowledge base processing queue for a course"""
     try:
+        current_user = get_authenticated_user()
         data = request.json
         if not data:
             return jsonify({'status': 'error', 'message': '鏃犳晥鐨勮姹傛暟鎹?'}), 400
@@ -5925,7 +6092,12 @@ def clear_knowledge_base_queue():
         
         if not course_id:
             return jsonify({'status': 'error', 'message': '缺少课程ID'}), 400
-        
+
+        course = Course.query.get(course_id)
+        access_error = ensure_course_teacher_access(course, current_user)
+        if access_error:
+            return access_error
+
         # 鏌ユ壘鎵€鏈夊緟澶勭悊鍜屽鐞嗕腑鐨勯槦鍒楅」
         queue_items = KnowledgeBaseQueue.query.filter_by(course_id=course_id).filter(
             KnowledgeBaseQueue.status.in_(['pending', 'processing'])
@@ -5960,9 +6132,11 @@ def clear_knowledge_base_queue():
         }), 500
 
 @rag_api.route('/knowledge/batch-remove', methods=['DELETE'])
+@jwt_required()
 def batch_remove_from_knowledge_base():
     """Batch remove files from the knowledge base"""
     try:
+        current_user = get_authenticated_user()
         data = request.json
         if not data:
             return jsonify({'status': 'error', 'message': '鏃犳晥鐨勮姹傛暟鎹?'}), 400
@@ -5986,6 +6160,10 @@ def batch_remove_from_knowledge_base():
             try:
                 queue_item = queue_item_map.get(queue_id)
                 if not queue_item:
+                    failed_count += 1
+                    continue
+                access_error = ensure_queue_item_teacher_access(queue_item, current_user)
+                if access_error:
                     failed_count += 1
                     continue
 

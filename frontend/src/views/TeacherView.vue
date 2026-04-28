@@ -71,7 +71,7 @@
 
         <!-- AI助手 -->
         <div v-if="activeTab === 'ai-assistant'">
-          <AIAssistant :user-id="userId || ''" />
+          <AIAssistant :user-id="userId || ''" :course-id="assistantCourseId" />
         </div>
 
         <!-- 智能备课 -->
@@ -144,6 +144,10 @@ const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
 const userId = computed(() => authStore.user?.id);
+const assistantCourseId = computed(() => {
+  const rawCourseId = route.query.courseId;
+  return typeof rawCourseId === 'string' && rawCourseId.trim() ? rawCourseId : undefined;
+});
 
 const tabs = teacherTabs;
 const activeTab = computed({

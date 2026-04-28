@@ -135,6 +135,24 @@
             加载课程中...
           </div>
         </div>
+
+        <div
+          v-if="chatMode === 'rag' && selectedKnowledgeItems.length > 0"
+          class="mt-3 flex flex-wrap items-center gap-2 rounded-md bg-indigo-50 px-3 py-2 text-sm text-indigo-700"
+        >
+          <span class="font-medium">当前文件：</span>
+          <span class="rounded-full bg-white px-2.5 py-1 text-indigo-700 border border-indigo-100">
+            {{ scopedKnowledgeFileLabel }}
+          </span>
+          <span class="text-indigo-500">仅检索该知识库文件</span>
+          <button
+            type="button"
+            class="ml-auto rounded-md px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-100"
+            @click.stop="clearKnowledgeScope"
+          >
+            清除限定
+          </button>
+        </div>
       </div>
       
       <div :class="[minimal ? 'h-[calc(100vh-240px)]' : 'h-[calc(100vh-300px)]', 'p-4 overflow-y-auto']" ref="chatContainer">
@@ -290,7 +308,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch, computed, defineEmits } from 'vue';
+import { ref, onMounted, nextTick, watch, computed } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
@@ -321,7 +340,22 @@ interface Conversation {
   message_count: number;
 }
 
+type SourceUsage = 'content' | 'format' | 'case' | 'image_asset';
+
+interface ScopedKnowledgeItem {
+  id?: number;
+  course_id?: number | null;
+  file_path: string;
+  purpose?: string;
+  usage: SourceUsage;
+  knowledgePoint: string;
+  isRequired: boolean;
+  file_name: string;
+}
+
 const renderedAssistantMessageCache = new Map<string, string>();
+const route = useRoute();
+const router = useRouter();
 
 marked.setOptions({
   gfm: true,
@@ -376,6 +410,8 @@ const courses = ref<any[]>([]);
 const selectedCourseId = ref<string | number>('');
 const useRag = ref<boolean>(true);
 const loadingCourses = ref<boolean>(false);
+const selectedKnowledgeItems = ref<ScopedKnowledgeItem[]>([]);
+const autoLaunchSignature = ref('');
 
 // 新增：聊天模式相关
 const chatMode = ref<'general' | 'rag'>('general');
@@ -419,6 +455,15 @@ const statusText = computed(() => {
     return '知识库模式（如无知识库将使用普通模式）';
   }
   return '普通模式';
+});
+
+const scopedKnowledgeFileLabel = computed(() => {
+  if (selectedKnowledgeItems.value.length === 0) {
+    return '';
+  }
+  return selectedKnowledgeItems.value
+    .map(item => item.file_name || item.file_path.split('/').pop() || item.file_path)
+    .join('、');
 });
 
 function escapeHtml(value: string): string {
@@ -548,6 +593,120 @@ function formatFileUrl(url: string): string {
 
 const emit = defineEmits(['collapseRequest', 'conversation-updated']);
 
+function getQueryValue(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeSourceUsageValue(value: unknown): SourceUsage {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'format' || normalized === 'case' || normalized === 'image_asset') {
+    return normalized;
+  }
+  return 'content';
+}
+
+function buildScopedKnowledgeItemsFromRoute(): ScopedKnowledgeItem[] {
+  const filePath = getQueryValue(route.query.ragFilePath);
+  if (!filePath) {
+    return [];
+  }
+
+  const rawCourseId = getQueryValue(route.query.courseId);
+  const parsedCourseId = rawCourseId ? Number(rawCourseId) : NaN;
+  const rawKnowledgeId = getQueryValue(route.query.ragKnowledgeId);
+  const parsedKnowledgeId = rawKnowledgeId ? Number(rawKnowledgeId) : NaN;
+  const fileName = getQueryValue(route.query.ragFileName) || filePath.split('/').pop() || filePath;
+
+  return [{
+    id: Number.isFinite(parsedKnowledgeId) ? parsedKnowledgeId : undefined,
+    course_id: Number.isFinite(parsedCourseId) ? parsedCourseId : null,
+    file_path: filePath,
+    purpose: getQueryValue(route.query.ragPurpose) || 'general',
+    usage: normalizeSourceUsageValue(route.query.ragUsage),
+    knowledgePoint: getQueryValue(route.query.ragKnowledgePoint) || '文件内容检索',
+    isRequired: true,
+    file_name: fileName
+  }];
+}
+
+function syncAssistantContextFromRoute() {
+  selectedKnowledgeItems.value = buildScopedKnowledgeItemsFromRoute();
+
+  const routeCourseId = getQueryValue(route.query.courseId);
+  const fallbackCourseId = props.courseId !== null && props.courseId !== undefined ? String(props.courseId) : '';
+  const nextCourseId = routeCourseId || fallbackCourseId;
+
+  if (selectedKnowledgeItems.value.length > 0 || nextCourseId) {
+    chatMode.value = 'rag';
+  } else if (!props.minimal) {
+    chatMode.value = 'general';
+  }
+
+  if (nextCourseId) {
+    selectedCourseId.value = nextCourseId;
+  } else if (selectedKnowledgeItems.value.length === 0 && !props.minimal) {
+    selectedCourseId.value = '';
+  }
+}
+
+function buildSelectedKnowledgeItemsPayload() {
+  return selectedKnowledgeItems.value.map(item => ({
+    id: item.id,
+    course_id: item.course_id ?? null,
+    file_path: item.file_path,
+    purpose: item.purpose || 'general',
+    usage: item.usage,
+    knowledgePoint: item.knowledgePoint,
+    isRequired: item.isRequired
+  }));
+}
+
+async function maybeAutoLaunchFromRoute() {
+  const shouldAutoStart = getQueryValue(route.query.ragAutostart) === '1';
+  const prompt = getQueryValue(route.query.ragPrompt);
+  const signature = [
+    getQueryValue(route.query.courseId),
+    getQueryValue(route.query.ragFilePath),
+    prompt
+  ].join('|');
+
+  if (!shouldAutoStart || !prompt || !signature) {
+    return;
+  }
+  if (autoLaunchSignature.value === signature || loading.value) {
+    return;
+  }
+  if (chatMode.value !== 'rag' || (!selectedCourseId.value && selectedKnowledgeItems.value.length === 0)) {
+    return;
+  }
+
+  autoLaunchSignature.value = signature;
+  startNewConversation();
+  updateWelcomeMessage();
+  userInput.value = prompt;
+  await nextTick();
+  await sendMessage();
+
+  const nextQuery = { ...route.query };
+  delete nextQuery.ragAutostart;
+  await router.replace({ query: nextQuery });
+}
+
+async function clearKnowledgeScope() {
+  selectedKnowledgeItems.value = [];
+  const nextQuery = { ...route.query };
+  delete nextQuery.ragMode;
+  delete nextQuery.ragAutostart;
+  delete nextQuery.ragFilePath;
+  delete nextQuery.ragFileName;
+  delete nextQuery.ragPurpose;
+  delete nextQuery.ragPrompt;
+  delete nextQuery.ragKnowledgeId;
+  delete nextQuery.ragKnowledgePoint;
+  delete nextQuery.ragUsage;
+  await router.replace({ query: nextQuery });
+}
+
 onMounted(async () => {
   // 获取用户信息
   try {
@@ -606,18 +765,9 @@ onMounted(async () => {
   
   // 获取课程列表
   await fetchCourses();
-  
-  // 初始化聊天模式
-  if (props.courseId) {
-    // 如果传入了课程ID，默认使用RAG模式
-    chatMode.value = 'rag';
-    selectedCourseId.value = props.courseId;
-  } else {
-    // 否则使用普通模式
-    chatMode.value = 'general';
-  }
 
-  // 如果处于简洁模式，预设聊天模式和课程
+  syncAssistantContextFromRoute();
+
   if (props.minimal) {
     chatMode.value = 'rag';
     if (props.courseId) {
@@ -629,6 +779,8 @@ onMounted(async () => {
   if (chatMessages.value.length === 0) {
     updateWelcomeMessage();
   }
+
+  await maybeAutoLaunchFromRoute();
   
   // 滚动到底部
   scrollToBottom();
@@ -658,6 +810,24 @@ watch(courses, (newCourses) => {
     selectedCourseId.value = '';
   }
 });
+
+watch(
+  () => [
+    route.query.courseId,
+    route.query.ragAutostart,
+    route.query.ragFilePath,
+    route.query.ragFileName,
+    route.query.ragPurpose,
+    route.query.ragPrompt,
+    route.query.ragKnowledgeId,
+    route.query.ragKnowledgePoint,
+    route.query.ragUsage
+  ],
+  async () => {
+    syncAssistantContextFromRoute();
+    await maybeAutoLaunchFromRoute();
+  }
+);
 
 function scrollToBottom() {
   if (chatContainer.value) {
@@ -708,6 +878,9 @@ async function sendMessage() {
     if (chatMode.value === 'rag' && selectedCourseId.value) {
       params.course_id = selectedCourseId.value;
       params.use_rag = true; // 尝试使用RAG，如果失败会自动回退到普通模式
+      if (selectedKnowledgeItems.value.length > 0) {
+        params.selectedKnowledgeItems = buildSelectedKnowledgeItemsPayload();
+      }
     } else {
       params.use_rag = false;
     }
@@ -1008,7 +1181,11 @@ function updateWelcomeMessage() {
     if (selectedCourseId.value) {
       const course = courses.value.find(c => c.id == selectedCourseId.value);
       const courseName = course ? course.name : `课程 #${selectedCourseId.value}`;
-      welcomeMessage = `你好！我是易度新星 EduNova 智能学习助手。我已连接到"${courseName}"。我将基于课程的知识库回答，请随时提问！`;
+      if (selectedKnowledgeItems.value.length > 0) {
+        welcomeMessage = `你好！我是易度新星 EduNova 智能学习助手。我已连接到"${courseName}"中的知识库文件《${scopedKnowledgeFileLabel.value}》。接下来我会只围绕这份资料进行检索和回答。`;
+      } else {
+        welcomeMessage = `你好！我是易度新星 EduNova 智能学习助手。我已连接到"${courseName}"。我将基于课程的知识库回答，请随时提问！`;
+      }
     } else {
       welcomeMessage = '你好！我是易度新星 EduNova 智能学习助手。请选择课程以启用知识库增强功能。';
     }

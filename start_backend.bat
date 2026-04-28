@@ -2,7 +2,11 @@
 setlocal
 
 set "ROOT_DIR=%~dp0"
-set "PYTHON_EXE=python"
+set "LOCAL_ENV_FILE=%ROOT_DIR%.env.local"
+if exist "%LOCAL_ENV_FILE%" call :load_env_file "%LOCAL_ENV_FILE%"
+
+set "PYTHON_EXE=C:\Users\86152\.conda\envs\edunova2\python.exe"
+if not exist "%PYTHON_EXE%" set "PYTHON_EXE=python"
 if defined PYTHON_EXE_OVERRIDE set "PYTHON_EXE=%PYTHON_EXE_OVERRIDE%"
 if exist "%PYTHON_EXE%" (
   for %%I in ("%PYTHON_EXE%") do set "CONDA_ENV_DIR=%%~dpI"
@@ -21,7 +25,7 @@ for /f "usebackq delims=" %%P in (`powershell -NoProfile -Command "$pythonExe = 
     taskkill /PID %%P /F >nul 2>nul
   )
 )
-timeout /t 1 /nobreak >nul
+powershell -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>nul
 
 pushd "%ROOT_DIR%"
 "%PYTHON_EXE%" backend\main.py
@@ -36,3 +40,17 @@ exit /b 1
 :error
 echo Failed to start backend. backend\main.py was not found under: %ROOT_DIR%
 exit /b 1
+
+:load_env_file
+for /f "usebackq tokens=1,* delims==" %%A in ("%~1") do (
+  set "ENV_KEY=%%A"
+  set "ENV_VALUE=%%B"
+  call :set_env_value
+)
+goto :eof
+
+:set_env_value
+if not defined ENV_KEY goto :eof
+if "%ENV_KEY:~0,1%"=="#" goto :eof
+set "%ENV_KEY%=%ENV_VALUE%"
+goto :eof
