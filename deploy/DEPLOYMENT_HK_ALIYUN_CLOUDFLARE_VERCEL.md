@@ -210,9 +210,10 @@ apt install -y fonts-noto-cjk fonts-wqy-zenhei
 创建项目目录：
 
 ```bash
-cd /opt
+mkdir -p /home/admin/project
+cd /home/admin/project
 git clone https://github.com/<你的用户名>/edunova.git
-cd /opt/edunova
+cd /home/admin/project/edunova
 python3 -m venv venv
 . venv/bin/activate
 pip install --upgrade pip wheel setuptools
@@ -229,10 +230,10 @@ pip install python-magic
 创建运行目录并授权：
 
 ```bash
-mkdir -p /opt/edunova/backend/uploads
-mkdir -p /opt/edunova/uploads
-mkdir -p /opt/edunova/backend/database
-chown -R www-data:www-data /opt/edunova/backend/uploads /opt/edunova/uploads /opt/edunova/backend/database
+mkdir -p /home/admin/project/edunova/backend/uploads
+mkdir -p /home/admin/project/edunova/uploads
+mkdir -p /home/admin/project/edunova/backend/database
+chown -R admin:admin /home/admin/project/edunova/backend/uploads /home/admin/project/edunova/uploads /home/admin/project/edunova/backend/database
 ```
 
 ## 8. 配置后端生产 `.env`
@@ -240,8 +241,8 @@ chown -R www-data:www-data /opt/edunova/backend/uploads /opt/edunova/uploads /op
 创建配置文件：
 
 ```bash
-cp /opt/edunova/deploy/backend.production.env.example /opt/edunova/backend/.env
-nano /opt/edunova/backend/.env
+cp /home/admin/project/edunova/deploy/backend.production.env.example /home/admin/project/edunova/backend/.env
+nano /home/admin/project/edunova/backend/.env
 ```
 
 需要修改：
@@ -263,14 +264,14 @@ print(secrets.token_urlsafe(48))
 PY
 ```
 
-不要把服务器上的 `/opt/edunova/backend/.env` 提交到 Git。
+不要把服务器上的 `/home/admin/project/edunova/backend/.env` 提交到 Git。
 
 ## 9. 配置 Gunicorn systemd 服务
 
 复制服务文件：
 
 ```bash
-cp /opt/edunova/deploy/systemd/edunova.service /etc/systemd/system/edunova.service
+cp /home/admin/project/edunova/deploy/systemd/edunova.service /etc/systemd/system/edunova.service
 systemctl daemon-reload
 systemctl enable edunova
 systemctl start edunova
@@ -326,7 +327,7 @@ SSL/TLS -> Overview -> Full (strict)
 复制配置：
 
 ```bash
-cp /opt/edunova/deploy/nginx/edunova-api.conf /etc/nginx/sites-available/edunova-api
+cp /home/admin/project/edunova/deploy/nginx/edunova-api.conf /etc/nginx/sites-available/edunova-api
 nano /etc/nginx/sites-available/edunova-api
 ```
 
@@ -422,6 +423,15 @@ journalctl -u edunova -n 100 --no-pager
 tail -n 100 /var/log/nginx/error.log
 ```
 
+部署后推荐直接跑一遍 API 自检：
+
+```bash
+cd /home/admin/project/edunova
+bash deploy/self_check_api.sh https://api.example.com https://example.com 17
+```
+
+如果课程是私有课，可额外提供 `TOKEN=<teacher-or-admin-bearer-token>`。
+
 ## 15. 常见故障
 
 前端请求仍然是 `localhost:5001`：
@@ -431,7 +441,7 @@ tail -n 100 /var/log/nginx/error.log
 
 CORS error：
 
-- 检查 `/opt/edunova/backend/.env` 的 `CORS_ORIGINS` 是否包含前端完整 origin。
+- 检查 `/home/admin/project/edunova/backend/.env` 的 `CORS_ORIGINS` 是否包含前端完整 origin。
 - 示例：`https://example.com,https://www.example.com`。
 - 改完后执行 `systemctl restart edunova`。
 
@@ -446,7 +456,7 @@ Cloudflare 525：
 - 检查目录权限：
 
 ```bash
-chown -R www-data:www-data /opt/edunova/backend/uploads /opt/edunova/uploads /opt/edunova/backend/database
+chown -R admin:admin /home/admin/project/edunova/backend/uploads /home/admin/project/edunova/uploads /home/admin/project/edunova/backend/database
 ```
 
 LibreOffice 转换失败：
@@ -488,7 +498,7 @@ journalctl -u edunova -n 200 --no-pager
 - 真实上传文件测试。
 - RAG/AI 流程测试。
 - 默认账号密码修改。
-- 备份 `/opt/edunova/backend/database` 和上传目录。
+- 备份 `/home/admin/project/edunova/backend/database` 和上传目录。
 
 ## 17. 上线前必须处理
 

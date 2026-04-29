@@ -3,11 +3,11 @@ Description=EduNova Flask Backend
 After=network.target
 
 [Service]
-User=www-data
-Group=www-data
-WorkingDirectory=/opt/edunova
-Environment="PATH=/opt/edunova/venv/bin"
-ExecStart=/opt/edunova/venv/bin/gunicorn --workers 2 --threads 4 --timeout 300 --bind 127.0.0.1:5001 backend.main:app
+User=admin
+Group=admin
+WorkingDirectory=/home/admin/project/edunova
+Environment="PATH=/home/admin/project/edunova/venv/bin"
+ExecStart=/home/admin/project/edunova/venv/bin/gunicorn --workers 2 --threads 4 --timeout 300 --bind 127.0.0.1:5001 backend.main:app
 Restart=always
 RestartSec=5
 

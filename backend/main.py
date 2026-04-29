@@ -78,6 +78,7 @@ DEFAULT_CORS_ORIGINS = [
     "http://127.0.0.1:5173",
 ]
 CORS_ORIGINS = parse_csv_env("CORS_ORIGINS", DEFAULT_CORS_ORIGINS)
+app.config['CORS_ORIGINS'] = CORS_ORIGINS
 
 # 配置CORS，生产环境通过 CORS_ORIGINS 显式加入前端域名。
 CORS(app, resources={r"/*": {
@@ -96,6 +97,9 @@ def enforce_configured_cors(response):
     if origin in CORS_ORIGINS:
         response.headers['Access-Control-Allow-Origin'] = origin
         response.headers['Access-Control-Allow-Credentials'] = 'true'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept, Origin, Cache-Control'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+        response.headers['Access-Control-Max-Age'] = '3600'
         response.headers.add('Vary', 'Origin')
     else:
         response.headers.pop('Access-Control-Allow-Origin', None)

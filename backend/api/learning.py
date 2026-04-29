@@ -34,6 +34,7 @@ from backend.api.rag_ai import (
     purge_knowledge_assets_for_material,
     purge_knowledge_assets_for_queue_item,
 )
+from backend.api.auth import build_cors_preflight_response
 from backend.config.model_routing import get_model_candidates
 from backend.rag.chapter_generation_from_material import (
     apply_generated_chapters,
@@ -2483,7 +2484,7 @@ def get_learning_history(student_id):
 # 添加OPTIONS请求处理
 @learning_bp.route('/courses', methods=['OPTIONS'])
 def courses_options():
-    return '', 200
+    return build_cors_preflight_response('GET,POST,OPTIONS')
 
 # 获取课程列表
 @learning_bp.route('/courses', methods=['GET'])

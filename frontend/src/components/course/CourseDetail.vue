@@ -25,6 +25,31 @@
       </div>
     </div>
 
+    <div v-else-if="loadError" class="rounded-lg border border-rose-200 bg-rose-50 px-6 py-10 text-center shadow-sm">
+      <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white text-rose-500 shadow-sm">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M18 10A8 8 0 114.293 4.293 8 8 0 0118 10zm-9-3a1 1 0 112 0v3a1 1 0 11-2 0V7zm0 6a1 1 0 112 0 1 1 0 01-2 0z" clip-rule="evenodd" />
+        </svg>
+      </div>
+      <h2 class="mt-4 text-xl font-semibold text-rose-900">课程详情加载失败</h2>
+      <p class="mt-2 text-sm leading-6 text-rose-800">{{ loadError }}</p>
+      <p class="mt-1 text-xs text-rose-700">课程 ID：{{ courseId }}</p>
+      <div class="mt-6 flex flex-wrap justify-center gap-3">
+        <button
+          @click="retryLoadCourseDetail"
+          class="rounded-md bg-rose-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-700"
+        >
+          重试加载
+        </button>
+        <button
+          @click="goBackToDashboard"
+          class="rounded-md border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-100"
+        >
+          返回课程列表
+        </button>
+      </div>
+    </div>
+
     <div v-else-if="course" class="bg-white rounded-lg shadow-md overflow-hidden">
       <!-- 课程头部信息 -->
       <div class="p-6 border-b">
@@ -1208,6 +1233,7 @@ const courseId = computed(() => Number(route.params.id));
 const authStore = useAuthStore();
 const loading = ref(true);
 const course = ref<Course | null>(null);
+const loadError = ref('');
 const materials = ref<Material[]>([]);
 const students = ref<Student[]>([]);
 const availableStudents = ref<Student[]>([]);
@@ -1462,8 +1488,14 @@ watch(showMaterialPreview, (value) => {
 
 // 初始化
 onMounted(async () => {
+  await loadCourseDetailData();
+});
+
+async function loadCourseDetailData() {
   try {
     loading.value = true;
+    loadError.value = '';
+    course.value = null;
     if (authStore.user?.role === 'teacher') {
       try {
         const classResponse = await teacherClassAPI.getClasses() as { classes?: any[] };
@@ -1486,10 +1518,13 @@ onMounted(async () => {
     }
   } catch (error) {
     console.error('加载数据失败:', error);
+    if (!loadError.value) {
+      loadError.value = getRequestErrorMessage(error, '课程详情暂时不可用，请稍后重试。');
+    }
   } finally {
     loading.value = false;
   }
-});
+}
 
 // 获取课程详情
 async function fetchCourse() {
@@ -1498,7 +1533,29 @@ async function fetchCourse() {
     course.value = response as any;
   } catch (error) {
     console.error('获取课程详情失败:', error);
+    loadError.value = getRequestErrorMessage(error, '无法加载课程详情，请确认课程仍存在且当前账号有访问权限。');
+    throw error;
   }
+}
+
+async function retryLoadCourseDetail() {
+  await loadCourseDetailData();
+}
+
+function goBackToDashboard() {
+  if (authStore.user?.role === 'teacher') {
+    router.push({ path: '/teacher', query: { activeTab: 'courses' } });
+    return;
+  }
+  if (authStore.user?.role === 'student') {
+    router.push({ path: '/student', query: { activeTab: 'courses' } });
+    return;
+  }
+  if (authStore.user?.role === 'admin') {
+    router.push('/admin');
+    return;
+  }
+  router.push('/dashboard');
 }
 
 // 获取课程材料

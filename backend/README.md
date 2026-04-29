@@ -51,3 +51,4 @@ The backend listens on `http://127.0.0.1:5001` by default.
 
 - Do not commit `.env`, local virtual environments, cache folders, or generated upload outputs.
 - `backend/init_db.py` is destructive and resets the SQLite database.
+- To clear demo AI chat history while keeping other demo data, run `python backend/clear_chat_history.py`. Add `--vacuum` if you also want SQLite to reclaim file space after deletion.
