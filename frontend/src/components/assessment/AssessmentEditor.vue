@@ -1341,6 +1341,9 @@ const aiGenerationParams = reactive({
   extra_info: ''
 });
 const statusMessage = ref('初始化中...');
+const AI_ASSESSMENT_POLLING_INTERVAL_MS = 2000;
+const AI_ASSESSMENT_ESTIMATED_TOTAL_SECONDS = 300;
+const AI_ASSESSMENT_MAX_WAIT_SECONDS = 480;
 
 // 辅助函数：处理和标准化评估数据
 const processAssessmentData = (data) => {
@@ -1406,7 +1409,7 @@ const generateAssessmentWithAI = async () => {
     };
     
     console.log('发送AI生成请求:', requestData);
-    statusMessage.value = '评估生成中...这可能需要1-2分钟，请耐心等待';
+    statusMessage.value = '评估生成中...较复杂的内容可能需要 3-8 分钟，请保持页面开启';
     
     // 发送生成请求，获取请求ID
     const response = await assessmentAPI.generateAssessmentWithAI(requestData);
@@ -1429,7 +1432,7 @@ const generateAssessmentWithAI = async () => {
       statusMessage.value = '正在获取生成结果...';
       
       // 设置轮询参数
-      const pollingInterval = 2000; // 2秒查询一次，减少生成完成后的等待感
+      const pollingInterval = AI_ASSESSMENT_POLLING_INTERVAL_MS; // 2秒查询一次，减少生成完成后的等待感
       let assessmentData = null;
       let successfulResponses = 0; // 跟踪成功响应的次数
       let directFetchAttempted = false; // 是否已尝试直接获取文件
@@ -1470,7 +1473,7 @@ const generateAssessmentWithAI = async () => {
           
           // 计算经过的时间和估计进度
           const elapsedTime = (Date.now() - startTime) / 1000; // 经过的秒数
-          const estimatedTotalTime = 150; // 估计总时间（秒）
+          const estimatedTotalTime = AI_ASSESSMENT_ESTIMATED_TOTAL_SECONDS; // 估计总时间（秒）
           
           // 根据后端返回的状态更新进度
           if (typeof responseData.progress_percent === 'number') {
@@ -1575,7 +1578,7 @@ const generateAssessmentWithAI = async () => {
           }
           
           // 安全机制：如果轮询时间超过4分钟，主动尝试直接获取文件并结束
-          if (elapsedTime > 240 && !assessmentData) {
+          if (elapsedTime > AI_ASSESSMENT_MAX_WAIT_SECONDS && !assessmentData) {
             console.log("轮询超时，最后尝试直接获取文件...");
             try {
               const directResponse = await fetch(`/api/assessments/ai-file/${requestId}`, {
@@ -1597,7 +1600,7 @@ const generateAssessmentWithAI = async () => {
             
             // 如果仍然没有获取到数据，抛出超时错误
             if (!assessmentData) {
-              throw new Error('等待评估生成结果超时，请稍后在评估列表中查看或重试');
+              throw new Error('等待评估生成结果超时。后台可能仍在继续处理，请稍后在评估列表中查看或重新打开编辑器确认结果。');
             }
             break;
           }

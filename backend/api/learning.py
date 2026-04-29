@@ -1744,8 +1744,9 @@ def build_image_data_url(file_bytes, mime_type):
     return f"data:{mime_type};base64,{encoded}"
 
 
-AI_ASSESSMENT_MODEL_TIMEOUT_SECONDS = 150
-AI_ASSESSMENT_STALE_SECONDS = 165
+AI_ASSESSMENT_MODEL_TIMEOUT_SECONDS = 300
+AI_ASSESSMENT_STALE_SECONDS = 420
+AI_ASSESSMENT_HEARTBEAT_INTERVAL_SECONDS = 10
 
 
 def post_chat_completion(api_key, api_base, payload, timeout=180):
@@ -2354,6 +2355,30 @@ def generate_ai_assessment():
     def generate_in_background():
         # 在线程中使用应用上下文
         with app.app_context():
+            heartbeat_stop = threading.Event()
+
+            def heartbeat_worker():
+                while not heartbeat_stop.wait(AI_ASSESSMENT_HEARTBEAT_INTERVAL_SECONDS):
+                    try:
+                        update_ai_assessment_state(file_path)
+                    except Exception as heartbeat_error:
+                        app.logger.warning(
+                            '刷新 AI 评估生成心跳失败: request_id=%s error=%s',
+                            request_id,
+                            heartbeat_error,
+                        )
+
+            heartbeat_thread = threading.Thread(
+                target=heartbeat_worker,
+                daemon=True,
+                name=f'ai-assessment-heartbeat-{request_id}',
+            )
+
+            def stop_heartbeat():
+                heartbeat_stop.set()
+                if heartbeat_thread.is_alive():
+                    heartbeat_thread.join(timeout=1)
+
             try:
                 update_ai_assessment_state(
                     file_path,
@@ -2363,6 +2388,7 @@ def generate_ai_assessment():
                     progress_percent=10,
                     started_at=datetime.now().isoformat(),
                 )
+                heartbeat_thread.start()
 
                 def status_callback(stage, message, percent):
                     update_ai_assessment_state(
@@ -2392,6 +2418,8 @@ def generate_ai_assessment():
                 
                 # 添加请求ID用于跟踪
                 generated_assessment['request_id'] = request_id
+
+                stop_heartbeat()
                 
                 # 保存生成的评估
                 result_data = {
@@ -2410,6 +2438,8 @@ def generate_ai_assessment():
                 app.logger.info(f"生成的评估已保存到: {file_path}")
                 
             except Exception as e:
+                stop_heartbeat()
+
                 # 保存错误信息
                 error_data = {
                     'status': 'error',
