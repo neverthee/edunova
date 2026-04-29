@@ -1342,8 +1342,8 @@ const aiGenerationParams = reactive({
 });
 const statusMessage = ref('初始化中...');
 const AI_ASSESSMENT_POLLING_INTERVAL_MS = 2000;
-const AI_ASSESSMENT_ESTIMATED_TOTAL_SECONDS = 300;
-const AI_ASSESSMENT_MAX_WAIT_SECONDS = 480;
+const AI_ASSESSMENT_ESTIMATED_TOTAL_SECONDS = 480;
+const AI_ASSESSMENT_MAX_WAIT_SECONDS = 720;
 
 // 辅助函数：处理和标准化评估数据
 const processAssessmentData = (data) => {
@@ -1409,7 +1409,7 @@ const generateAssessmentWithAI = async () => {
     };
     
     console.log('发送AI生成请求:', requestData);
-    statusMessage.value = '评估生成中...较复杂的内容可能需要 3-8 分钟，请保持页面开启';
+    statusMessage.value = '评估生成中...较复杂的内容可能需要 5-10 分钟，请保持页面开启';
     
     // 发送生成请求，获取请求ID
     const response = await assessmentAPI.generateAssessmentWithAI(requestData);
