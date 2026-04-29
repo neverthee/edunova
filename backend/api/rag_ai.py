@@ -162,6 +162,24 @@ def ensure_course_teacher_access(course: Optional[Course], current_user: Optiona
     return None
 
 
+def ensure_course_knowledge_access(course: Optional[Course], current_user: Optional[User]):
+    if not course:
+        return jsonify({'status': 'error', 'message': '课程不存在'}), 404
+    if not current_user:
+        return jsonify({'status': 'error', 'message': '未登录，无法访问课程资源'}), 401
+    if current_user.role == 'admin':
+        return None
+    if current_user.role == 'teacher':
+        if course.teacher_id != current_user.id:
+            return jsonify({'status': 'error', 'message': '无权访问该课程资源'}), 403
+        return None
+    if current_user.role == 'student':
+        if any(student.id == current_user.id for student in (course.students or [])):
+            return None
+        return jsonify({'status': 'error', 'message': '仅已加入该课程的学生可访问知识库'}), 403
+    return jsonify({'status': 'error', 'message': '无权访问该课程资源'}), 403
+
+
 def ensure_queue_item_teacher_access(queue_item: Optional[KnowledgeBaseQueue], current_user: Optional[User]):
     if not queue_item:
         return jsonify({'status': 'error', 'message': '队列项不存在'}), 404
@@ -5829,7 +5847,7 @@ def add_to_knowledge_base():
         return jsonify({'status': 'error', 'message': 'purpose 浠呮敮鎸?general 鎴?lesson_plan'}), 400
 
     course = Course.query.get(course_id)
-    access_error = ensure_course_teacher_access(course, current_user)
+    access_error = ensure_course_knowledge_access(course, current_user)
     if access_error:
         return access_error
 
@@ -5928,12 +5946,18 @@ def get_knowledge_base_status():
     query = KnowledgeBaseQueue.query
     if course_id:
         course = Course.query.get(course_id)
-        access_error = ensure_course_teacher_access(course, current_user)
+        access_error = ensure_course_knowledge_access(course, current_user)
         if access_error:
             return access_error
         query = query.filter_by(course_id=course_id)
     elif current_user and current_user.role != 'admin':
-        query = query.join(Course, KnowledgeBaseQueue.course_id == Course.id).filter(Course.teacher_id == current_user.id)
+        query = query.join(Course, KnowledgeBaseQueue.course_id == Course.id)
+        if current_user.role == 'teacher':
+            query = query.filter(Course.teacher_id == current_user.id)
+        elif current_user.role == 'student':
+            query = query.filter(Course.students.any(User.id == current_user.id))
+        else:
+            query = query.filter(Course.id == -1)
 
     queue_items = query.order_by(
         KnowledgeBaseQueue.created_at.desc(),

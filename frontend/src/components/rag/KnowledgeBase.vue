@@ -21,6 +21,7 @@
             直接上传
           </button>
           <button 
+            v-if="canManageKnowledgeBase"
             @click="showImportModal = true"
             class="flex items-center gap-2 rounded-2xl bg-white px-5 py-2.5 text-sm font-bold text-slate-700 border border-slate-200 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300 active:bg-slate-100"
           >
@@ -28,6 +29,7 @@
             课件导入
           </button>
           <button
+            v-if="canManageKnowledgeBase"
             @click="showImportExampleModal = true"
             class="flex items-center gap-2 rounded-2xl bg-slate-100 px-5 py-2.5 text-sm font-bold text-slate-600 transition-all hover:bg-slate-200 active:bg-slate-300"
           >
@@ -97,7 +99,7 @@
       </div>
 
       <!-- Batch Actions -->
-      <div v-if="selectedItems.length > 0 || hasProcessingItems" class="flex items-center gap-4 mt-4 pt-4 border-t border-slate-100">
+      <div v-if="canManageKnowledgeBase && (selectedItems.length > 0 || hasProcessingItems)" class="flex items-center gap-4 mt-4 pt-4 border-t border-slate-100">
         <div class="flex items-center gap-2 px-2">
           <input 
             type="checkbox" 
@@ -220,7 +222,7 @@
         >
           <div class="flex items-start flex-1 min-w-0">
             <!-- Checkbox -->
-            <div class="mt-1 mr-4">
+            <div v-if="canManageKnowledgeBase" class="mt-1 mr-4">
               <input 
                 type="checkbox" 
                 :value="item.id"
@@ -299,7 +301,7 @@
             </button>
             
             <button 
-              v-if="item.status === 'failed'"
+              v-if="canManageKnowledgeBase && item.status === 'failed'"
               @click="retryProcessing(item)"
               class="flex items-center justify-center w-9 h-9 rounded-xl bg-white text-slate-400 border border-slate-200 transition-all hover:bg-amber-50 hover:text-amber-600 hover:border-amber-200 tooltip-trigger"
               title="重试处理"
@@ -308,6 +310,7 @@
             </button>
             
             <button 
+              v-if="canManageKnowledgeBase"
               @click="removeFromKnowledgeBase(item)"
               class="flex items-center justify-center w-9 h-9 rounded-xl bg-white text-slate-400 border border-slate-200 transition-all hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 tooltip-trigger"
               title="删除"
@@ -586,6 +589,7 @@
 import { ref, reactive, onMounted, onBeforeUnmount, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ragAiAPI, materialAPI, courseAPI, knowledgeBaseAPI } from '../../api';
+import { useAuthStore } from '../../stores/auth';
 import notificationService from '../../services/notificationService';
 import dialogService from '../../services/dialogService';
 
@@ -597,11 +601,16 @@ const props = withDefaults(defineProps<{
 
 const route = useRoute();
 const router = useRouter();
+const authStore = useAuthStore();
+const isStudentView = computed(() => authStore.user?.role === 'student');
+const canManageKnowledgeBase = computed(() => authStore.user?.role === 'teacher' || authStore.user?.role === 'admin');
+const assistantPath = computed(() => (isStudentView.value ? '/student' : '/teacher'));
 
 // 类型定义
 interface Course {
   id: number;
   name: string;
+  is_enrolled?: boolean;
 }
 
 interface KnowledgeItem {
@@ -821,6 +830,10 @@ async function fetchCourses() {
       courses.value = (response as CoursesResponse).courses || [];
     } else {
       courses.value = [];
+    }
+
+    if (isStudentView.value) {
+      courses.value = courses.value.filter(course => course.is_enrolled);
     }
     
     console.log('课程列表设置完成:', courses.value);
@@ -1355,7 +1368,7 @@ function searchInFile(item: KnowledgeItem) {
   }
 
   router.push({
-    path: '/teacher',
+    path: assistantPath.value,
     query: nextQuery
   });
 }

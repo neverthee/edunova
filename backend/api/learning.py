@@ -46,7 +46,7 @@ from backend.rag.chapter_generation_from_material import (
 from backend.rag.parsers.docx_parser import extract_lines_from_parse_result, parse_docx
 from backend.rag.parsers.pdf_parser import parse_pdf
 from backend.rag.parsers.ppt_parser import parse_ppt
-from sqlalchemy import func, desc, and_
+from sqlalchemy import func, desc, and_, or_
 
 learning_bp = Blueprint('learning', __name__)
 OFFICE_PREVIEW_EXTENSIONS = {'.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx'}
@@ -935,6 +935,24 @@ def ensure_course_manage_access(course, current_user):
     if current_user.role != 'teacher' or course.teacher_id != current_user.id:
         return jsonify({'error': '无权操作该课程'}), 403
     return None
+
+
+def ensure_course_upload_access(course, current_user):
+    if not course:
+        return jsonify({'error': 'Course not found'}), 404
+    if not current_user:
+        return jsonify({'error': '未登录，无法上传课程资料'}), 401
+    if current_user.role == 'admin':
+        return None
+    if current_user.role == 'teacher':
+        if course.teacher_id != current_user.id:
+            return jsonify({'error': '无权上传该课程资料'}), 403
+        return None
+    if current_user.role == 'student':
+        if any(student.id == current_user.id for student in (course.students or [])):
+            return None
+        return jsonify({'error': '仅已加入该课程的学生可上传资料'}), 403
+    return jsonify({'error': '无权上传该课程资料'}), 403
 
 
 def ensure_material_read_access(material, current_user):
@@ -2506,7 +2524,12 @@ def get_courses():
 
     if current_user:
         if current_user.role == 'student':
-            query = query.filter(Course.is_public.is_(True))
+            query = query.filter(
+                or_(
+                    Course.is_public.is_(True),
+                    Course.students.any(User.id == current_user.id)
+                )
+            )
         elif current_user.role == 'teacher':
             query = query.filter(Course.teacher_id == current_user.id)
     else:
@@ -2960,7 +2983,7 @@ def upload_material(course_id):
     current_user = get_current_user_from_request()
     # 检查课程是否存在
     course = Course.query.get(course_id)
-    access_error = ensure_course_manage_access(course, current_user)
+    access_error = ensure_course_upload_access(course, current_user)
     if access_error:
         return access_error
     
