@@ -1,4 +1,4 @@
-import axios from 'axios'
+import axios, { type AxiosProgressEvent } from 'axios'
 import { API_BASE_URL } from '@/config/api'
 
 // 创建axios实例
@@ -584,9 +584,12 @@ export const ragAiAPI = {
     api.post('/rag/transcribe-audio', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     }),
-  uploadTempKnowledgeFile: (formData: FormData) =>
+  uploadTempKnowledgeFile: (formData: FormData, options: TempKnowledgeUploadRequestOptions = {}) =>
     api.post('/rag/knowledge/upload-temp', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: options.timeout ?? 0,
+      signal: options.signal,
+      onUploadProgress: options.onUploadProgress
     }),
 
   processTempSources: (data: {
@@ -958,6 +961,12 @@ export interface GenerateLessonGameHtmlResponse {
     updated_at?: string;
     order?: number;
   };
+}
+
+export interface TempKnowledgeUploadRequestOptions {
+  timeout?: number;
+  signal?: AbortSignal;
+  onUploadProgress?: (progressEvent: AxiosProgressEvent) => void;
 }
 
 export default api

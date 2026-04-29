@@ -260,11 +260,12 @@
                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="head-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                       上传本地文件
                     </h4>
+                    <p>支持文档、图片和视频。单文件上限 200MB，视频上传可能需要更久。</p>
                   </div>
-                  <label class="upload-trigger-modern">
-                    <input type="file" class="sr-only" accept=".pdf,.docx,.doc,.txt,.md,.ppt,.pptx,.jpg,.jpeg,.png,.webp,.mp4,.mov,.avi,.mkv,.webm" @change="handleFileUpload" />
+                  <label class="upload-trigger-modern" :class="{ disabled: pendingUploadedFiles.length > 0 }">
+                    <input type="file" class="sr-only" accept=".pdf,.docx,.doc,.txt,.md,.ppt,.pptx,.jpg,.jpeg,.png,.webp,.mp4,.mov,.avi,.mkv,.webm" :disabled="pendingUploadedFiles.length > 0" @change="handleFileUpload" />
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-                    上传文件
+                    {{ pendingUploadedFiles.length > 0 ? '上传中...' : '上传文件' }}
                   </label>
                 </div>
 
@@ -272,33 +273,47 @@
                   <p>暂未上传任何本地文件</p>
                 </div>
                 <div v-else class="resource-list-modern">
-                  <article v-for="file in uploadedFiles" :key="file.path" class="resource-item-modern">
+                  <article v-for="file in uploadedFiles" :key="file.clientId" class="resource-item-modern" :class="{ 'is-uploading': file.status === 'uploading', 'is-failed': file.status === 'failed' }">
                     <div class="item-header">
                       <div class="file-info">
                         <span class="file-type-icon">{{ getFileTypeBadge(file.name) }}</span>
                         <div class="file-meta">
                           <div class="file-name">{{ file.name }}</div>
+                          <div class="file-submeta">
+                            <span v-if="file.size">{{ formatFileSize(file.size) }}</span>
+                            <span class="status-chip" :class="file.status">{{ getUploadStatusLabel(file) }}</span>
+                          </div>
                         </div>
                       </div>
                       <button type="button" class="remove-btn-icon" @click="removeFile(file)">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
                       </button>
                     </div>
+                    <div v-if="file.status !== 'ready'" class="upload-status-panel" :class="file.status">
+                      <div v-if="file.status === 'uploading'" class="upload-progress-shell">
+                        <div class="upload-progress-bar" :style="{ width: `${Math.max(file.progress, 4)}%` }"></div>
+                      </div>
+                      <p class="upload-status-copy">
+                        {{ file.status === 'uploading'
+                          ? (file.progress > 0 ? `正在上传，请保持页面开启。当前进度 ${file.progress}%` : '正在准备上传，请稍候...')
+                          : (file.errorMessage || '上传失败，请删除后重新选择文件。') }}
+                      </p>
+                    </div>
                     <div class="item-form-grid">
                       <div class="field-group-modern">
                         <label class="field-label">用途</label>
-                        <select v-model="file.usage" class="planner-select-modern" :class="{ 'is-invalid': shouldHighlightSourceField(file, 'usage') }">
+                        <select v-model="file.usage" class="planner-select-modern" :class="{ 'is-invalid': shouldHighlightSourceField(file, 'usage') }" :disabled="file.status !== 'ready'">
                           <option value="">选择用途</option>
                           <option v-for="option in sourceUsageOptions" :key="option.value" :value="option.label">{{ option.label }}</option>
                         </select>
                       </div>
                       <div class="field-group-modern">
                         <label class="field-label">知识点</label>
-                        <input v-model="file.knowledgePoint" type="text" class="planner-input-modern" :class="{ 'is-invalid': shouldHighlightSourceField(file, 'knowledgePoint') }" placeholder="关联知识点" />
+                        <input v-model="file.knowledgePoint" type="text" class="planner-input-modern" :class="{ 'is-invalid': shouldHighlightSourceField(file, 'knowledgePoint') }" :disabled="file.status !== 'ready'" placeholder="关联知识点" />
                       </div>
                       <div class="field-group-modern">
                         <label class="field-label">必选</label>
-                        <select v-model="file.isRequired" class="planner-select-modern" :class="{ 'is-invalid': shouldHighlightSourceField(file, 'isRequired') }">
+                        <select v-model="file.isRequired" class="planner-select-modern" :class="{ 'is-invalid': shouldHighlightSourceField(file, 'isRequired') }" :disabled="file.status !== 'ready'">
                           <option :value="null">请选择</option>
                           <option :value="true">是</option>
                           <option :value="false">否</option>
@@ -1345,6 +1360,7 @@ import MarkdownViewer from '../course/MarkdownViewer.vue';
 import { useAudioTranscription } from '@/composables/useAudioTranscription';
 import MaterialPreview from '../course/MaterialPreview.vue';
 import { useAuthStore } from '@/stores/auth';
+import notificationService from '@/services/notificationService';
 import {
   LESSON_PLANNER_DRAFT_KEY,
   LESSON_PLANNER_RESULT_KEY,
@@ -1451,12 +1467,17 @@ interface SourceItem {
 }
 
 interface UploadedFile {
+  clientId: string;
   name: string;
   path: string;
   hash: string;
+  size: number;
   usage: string;
   knowledgePoint: string;
   isRequired: boolean | null;
+  status: 'uploading' | 'ready' | 'failed';
+  progress: number;
+  errorMessage?: string;
 }
 
 interface LessonPlanVersion {
@@ -1567,6 +1588,10 @@ const teachingStyleOptions = ['讲授型', '探究式', '项目式', '合作学�
 const ideaHints = ['课堂节奏怎么安排？', '学生基础是什么水平？', '想用什么案例或情境？', '教学重点和难点是什么？', '希望有哪些互动活动？'];
 const defaultAssistantPrompt = '您好。为了把这节课备得更贴合您的想法，先告诉我这节课的大致设想。您可以先说课堂节奏、案例情境、学生基础、教学目标、重点难点或者互动方式；您先随意讲，我会边听边提取要点，并在不清楚的地方继续追问。';
 const defaultGradeDraft: GradeDraft = { stage: '高中', grade: '高一', subject: '数学' };
+const MAX_TEMP_UPLOAD_SIZE_BYTES = 200 * 1024 * 1024;
+const DEFAULT_TEMP_UPLOAD_TIMEOUT_MS = 5 * 60 * 1000;
+const VIDEO_TEMP_UPLOAD_TIMEOUT_MS = 15 * 60 * 1000;
+const VIDEO_FILE_EXTENSIONS = new Set(['mp4', 'mov', 'avi', 'mkv', 'webm']);
 
 const entryMode = ref<EntryMode>('launcher');
 const wizardStep = ref<WizardStep>(1);
@@ -1661,6 +1686,7 @@ const isSummarizingRequirement = ref(false);
 const isStructuringRequirement = ref(false);
 const isProcessingSources = ref(false);
 const progressPercent = ref(0);
+const uploadControllers = new Map<string, AbortController>();
 let progressTimer: number | null = null;
 let progressResetTimer: number | null = null;
 let progressTaskStartedAt = 0;
@@ -1802,9 +1828,21 @@ const deliverableSummaryText = computed(() => {
   return deliverables.value.map(value => deliveryOptions.find(item => item.value === value)?.label || value).join('、');
 });
 
+const readyUploadedFiles = computed(() =>
+  uploadedFiles.value.filter(file => file.status === 'ready' && !!file.path)
+);
+
+const pendingUploadedFiles = computed(() =>
+  uploadedFiles.value.filter(file => file.status === 'uploading')
+);
+
+const failedUploadedFiles = computed(() =>
+  uploadedFiles.value.filter(file => file.status === 'failed')
+);
+
 const currentSourceProcessingHash = computed(() =>
   JSON.stringify(
-    uploadedFiles.value.map(file => ({
+    readyUploadedFiles.value.map(file => ({
       path: file.path,
       hash: file.hash,
       usage: file.usage || '',
@@ -1860,12 +1898,16 @@ const activeStudentLevelText = computed(() =>
 );
 
 const canProcessSources = computed(() =>
-  uploadedFiles.value.length > 0 &&
+  readyUploadedFiles.value.length > 0 &&
+  pendingUploadedFiles.value.length === 0 &&
+  failedUploadedFiles.value.length === 0 &&
   getInvalidSourceMappedFiles().length === 0 &&
   !isProcessingSources.value
 );
 
 const canMoveFromResourceStep = computed(() =>
+  pendingUploadedFiles.value.length === 0 &&
+  failedUploadedFiles.value.length === 0 &&
   getInvalidSourceMappedFiles().length === 0 &&
   getInvalidKnowledgeMappedItems().length === 0
 );
@@ -1874,8 +1916,14 @@ const resourceStepGuideMessage = computed(() => {
   const parts: string[] = [];
   const invalidUploads = getInvalidSourceMappedFiles();
   const invalidKnowledge = getInvalidKnowledgeMappedItems();
-  if (uploadedFiles.value.length > 0 && invalidUploads.length === 0) {
-    parts.push(`上传文件标注已完成 ${uploadedFiles.value.length} 项`);
+  if (pendingUploadedFiles.value.length > 0) {
+    parts.push(`仍有 ${pendingUploadedFiles.value.length} 个文件正在上传，请等待完成`);
+  }
+  if (failedUploadedFiles.value.length > 0) {
+    parts.push(`有 ${failedUploadedFiles.value.length} 个文件上传失败，请删除后重新上传`);
+  }
+  if (readyUploadedFiles.value.length > 0 && invalidUploads.length === 0) {
+    parts.push(`上传文件标注已完成 ${readyUploadedFiles.value.length} 项`);
   } else if (invalidUploads.length > 0) {
     parts.push(`上传文件还需补全 ${invalidUploads.length} 项：${invalidUploads.join('、')}`);
   }
@@ -2302,7 +2350,7 @@ watch(deliverables, () => {
 }, { deep: true });
 
 watch(
-  () => [uploadedFiles.value.length, selectedKnowledgeItems.value.length, currentSourceProcessingHash.value],
+  () => [readyUploadedFiles.value.length, selectedKnowledgeItems.value.length, currentSourceProcessingHash.value],
   ([uploadedCount, selectedCount, currentHash], [prevUploadedCount, prevSelectedCount, prevHash]) => {
     const uploadedCountNumber = Number(uploadedCount || 0);
     const selectedCountNumber = Number(selectedCount || 0);
@@ -2381,6 +2429,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   clearProgressTimer();
   clearProgressResetTimer();
+  uploadControllers.forEach(controller => controller.abort());
+  uploadControllers.clear();
 });
 
 let hasInitializedPlannerNavigationScroll = false;
@@ -2462,18 +2512,31 @@ function createEmptyRequirementDraft(): RequirementDraft {
 function normalizeUploadedFileList(value: any): UploadedFile[] {
   if (!Array.isArray(value)) return [];
   return value
-    .map((item: any) => ({
-      name: String(item?.name || '').trim(),
-      path: String(item?.path || '').trim(),
-      hash: String(item?.hash || '').trim(),
-      usage: String(item?.usage || '').trim(),
-      knowledgePoint: String(item?.knowledgePoint || item?.knowledge_point || '').trim(),
-      isRequired: typeof item?.isRequired === 'boolean'
-        ? item.isRequired
-        : typeof item?.is_required === 'boolean'
-          ? item.is_required
-          : null
-    }))
+    .map((item: any): UploadedFile => {
+      const status: UploadedFile['status'] = item?.status === 'failed'
+        ? 'failed'
+        : item?.status === 'uploading'
+          ? 'uploading'
+          : 'ready';
+
+      return {
+        clientId: String(item?.clientId || item?.path || `upload_${Math.random().toString(36).slice(2, 10)}`).trim(),
+        name: String(item?.name || '').trim(),
+        path: String(item?.path || '').trim(),
+        hash: String(item?.hash || '').trim(),
+        size: Number.isFinite(Number(item?.size)) ? Number(item.size) : 0,
+        usage: String(item?.usage || '').trim(),
+        knowledgePoint: String(item?.knowledgePoint || item?.knowledge_point || '').trim(),
+        isRequired: typeof item?.isRequired === 'boolean'
+          ? item.isRequired
+          : typeof item?.is_required === 'boolean'
+            ? item.is_required
+            : null,
+        status,
+        progress: Number.isFinite(Number(item?.progress)) ? Number(item.progress) : 100,
+        errorMessage: item?.errorMessage ? String(item.errorMessage).trim() : undefined
+      };
+    })
     .filter((item: UploadedFile) => Boolean(item.path));
 }
 
@@ -2631,7 +2694,7 @@ function syncDraftToFormData() {
   formData.value.customStudentLevel = requirementDraft.value.studentPreset === '自定义'
     ? requirementDraft.value.customStudentPreset.trim()
     : '';
-  formData.value.useKnowledgeBase = uploadedFiles.value.length > 0 || selectedKnowledgeItems.value.length > 0;
+  formData.value.useKnowledgeBase = readyUploadedFiles.value.length > 0 || selectedKnowledgeItems.value.length > 0;
 }
 
 function updateMissingStates() {
@@ -2780,38 +2843,154 @@ async function fetchKnowledgeItems() {
   }
 }
 
+function createUploadClientId() {
+  return `upload_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getFileExtension(name: string) {
+  return String(name || '').split('.').pop()?.toLowerCase() || '';
+}
+
+function isVideoFile(name: string) {
+  return VIDEO_FILE_EXTENSIONS.has(getFileExtension(name));
+}
+
+function formatFileSize(bytes?: number) {
+  const value = Number(bytes || 0);
+  if (!Number.isFinite(value) || value <= 0) return '';
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function getUploadStatusLabel(file: UploadedFile) {
+  if (file.status === 'uploading') {
+    return file.progress > 0 ? `上传中 ${file.progress}%` : '准备上传';
+  }
+  if (file.status === 'failed') {
+    return '上传失败';
+  }
+  return '已上传';
+}
+
+function getUploadErrorMessage(error: any, file: File) {
+  const status = Number(error?.response?.status || 0);
+  const responseMessage = String(error?.response?.data?.message || error?.response?.data?.msg || '').trim();
+  const errorCode = String(error?.code || '').trim().toUpperCase();
+  const fallbackMessage = String(error?.message || '').trim();
+  const fileTypeText = isVideoFile(file.name) ? '视频文件' : '文件';
+
+  if (status === 413 || file.size > MAX_TEMP_UPLOAD_SIZE_BYTES) {
+    return `文件超过 200MB 上限，请压缩后再上传。`;
+  }
+  if (errorCode === 'ECONNABORTED' || /timeout/i.test(responseMessage) || /timeout/i.test(fallbackMessage)) {
+    return `${fileTypeText}较大，上传等待超时。建议压缩视频、降低码率，或稍后在更稳定的网络下重试。`;
+  }
+  if (/network error/i.test(fallbackMessage) || /failed to fetch/i.test(fallbackMessage)) {
+    return '网络连接中断，上传未完成，请检查网络后重试。';
+  }
+  if (responseMessage) {
+    return responseMessage;
+  }
+  return '上传未完成，请稍后重试。';
+}
+
+function updateUploadedFile(clientId: string, updater: (current: UploadedFile) => UploadedFile) {
+  uploadedFiles.value = uploadedFiles.value.map(file =>
+    file.clientId === clientId ? updater(file) : file
+  );
+}
+
 async function handleFileUpload(event: Event) {
   const target = event.target as HTMLInputElement;
   const file = target.files?.[0];
   if (!file) return;
 
+  if (file.size > MAX_TEMP_UPLOAD_SIZE_BYTES) {
+    notificationService.error('上传失败', `“${file.name}”超过 200MB 上限，请压缩后再上传。`);
+    target.value = '';
+    return;
+  }
+
+  const clientId = createUploadClientId();
+  const controller = new AbortController();
+  uploadControllers.set(clientId, controller);
+  uploadedFiles.value = [
+    ...uploadedFiles.value,
+    {
+      clientId,
+      name: file.name,
+      path: '',
+      hash: '',
+      size: file.size,
+      usage: '',
+      knowledgePoint: '',
+      isRequired: null,
+      status: 'uploading',
+      progress: 0
+    }
+  ];
+
   try {
     const payload = new FormData();
     payload.append('file', file);
-    const response: any = await ragAiAPI.uploadTempKnowledgeFile(payload);
+    const response: any = await ragAiAPI.uploadTempKnowledgeFile(payload, {
+      timeout: isVideoFile(file.name) ? VIDEO_TEMP_UPLOAD_TIMEOUT_MS : DEFAULT_TEMP_UPLOAD_TIMEOUT_MS,
+      signal: controller.signal,
+      onUploadProgress: (progressEvent) => {
+        const total = Number(progressEvent.total || file.size || 0);
+        const loaded = Number(progressEvent.loaded || 0);
+        const progress = total > 0 ? Math.min(99, Math.max(1, Math.round((loaded / total) * 100))) : 0;
+        updateUploadedFile(clientId, current => ({
+          ...current,
+          progress
+        }));
+      }
+    });
     if (response?.status !== 'success' || !response?.file_info) {
       throw new Error(response?.message || '上传失败');
     }
-    uploadedFiles.value = [
-      ...uploadedFiles.value,
-      {
-        name: response.file_info.original_name,
-        path: response.file_info.file_path,
-        hash: response.file_info.file_hash,
-        usage: '',
-        knowledgePoint: '',
-        isRequired: null
-      }
-    ];
+    updateUploadedFile(clientId, current => ({
+      ...current,
+      name: response.file_info.original_name,
+      path: response.file_info.file_path,
+      hash: response.file_info.file_hash,
+      size: Number(response.file_info.file_size || file.size || 0),
+      status: 'ready',
+      progress: 100,
+      errorMessage: undefined
+    }));
+    notificationService.success('上传成功', `“${file.name}”已上传，可继续补充用途和知识点。`, 3500);
     target.value = '';
   } catch (error: any) {
     console.error('上传文件失败:', error);
-    alert(`上传文件失败: ${error?.message || '未知错误'}`);
+    const isCanceled = String(error?.code || '').toUpperCase() === 'ERR_CANCELED';
+    if (isCanceled) {
+      uploadedFiles.value = uploadedFiles.value.filter(item => item.clientId !== clientId);
+      target.value = '';
+      return;
+    }
+    const friendlyMessage = getUploadErrorMessage(error, file);
+    updateUploadedFile(clientId, current => ({
+      ...current,
+      status: 'failed',
+      progress: 0,
+      errorMessage: friendlyMessage
+    }));
+    notificationService.error('上传失败', `“${file.name}”${friendlyMessage}`);
+    target.value = '';
+  } finally {
+    uploadControllers.delete(clientId);
   }
 }
 
 function removeFile(file: UploadedFile) {
-  uploadedFiles.value = uploadedFiles.value.filter(item => item.path !== file.path);
+  if (file.status === 'uploading') {
+    uploadControllers.get(file.clientId)?.abort();
+    uploadControllers.delete(file.clientId);
+  }
+  uploadedFiles.value = uploadedFiles.value.filter(item => item.clientId !== file.clientId);
 }
 
 function isKnownSourceUsage(value: string) {
@@ -2845,7 +3024,7 @@ function getFileTypeBadge(name: string) {
 }
 
 function getInvalidSourceMappedFiles() {
-  return uploadedFiles.value
+  return readyUploadedFiles.value
     .filter(file => !file.usage || !file.knowledgePoint.trim() || typeof file.isRequired !== 'boolean')
     .map(file => file.name);
 }
@@ -2877,7 +3056,7 @@ function goToRequirementStep() {
 }
 
 function buildSourceMappings() {
-  return uploadedFiles.value
+  return readyUploadedFiles.value
     .filter((file): file is UploadedFile & { isRequired: boolean } => !!file.usage && typeof file.isRequired === 'boolean')
     .map(file => ({
       filePath: file.path,
@@ -2888,7 +3067,7 @@ function buildSourceMappings() {
 }
 
 function buildProcessSourceMappings() {
-  return uploadedFiles.value
+  return readyUploadedFiles.value
     .filter((file): file is UploadedFile & { isRequired: boolean } => !!file.usage && typeof file.isRequired === 'boolean')
     .map(file => ({
       file_path: file.path,
@@ -2923,7 +3102,7 @@ async function processUploadedSources() {
   isProcessingSources.value = true;
   try {
     const response: any = await ragAiAPI.processTempSources({
-      file_paths: uploadedFiles.value.map(file => file.path),
+      file_paths: readyUploadedFiles.value.map(file => file.path),
       source_mappings: buildProcessSourceMappings()
     });
     if (response?.status !== 'success' || !Array.isArray(response?.sources)) {
@@ -3154,7 +3333,7 @@ async function performRequirementExtraction(appendAssistantResponse: boolean) {
       course_id: formData.value.courseId ? Number(formData.value.courseId) : undefined,
       form_snapshot: buildFormSnapshot(),
       requirement_summary: requirementSummary.value || buildClarifiedRequirementPayload(),
-      source_mappings: uploadedFiles.value.length > 0 ? buildSourceMappings() : undefined
+      source_mappings: readyUploadedFiles.value.length > 0 ? buildSourceMappings() : undefined
     });
     if (structuredResponse?.status === 'success' && structuredResponse?.structured) {
       structuredRequirement.value = normalizeStructuredRequirementPayload(structuredResponse.structured);
@@ -3607,10 +3786,18 @@ async function generateLessonPlan() {
   syncDraftToFormData();
   updateMissingStates();
   if (!canGenerate.value) return;
-  if (uploadedFiles.value.length > 0) {
+  if (pendingUploadedFiles.value.length > 0) {
+    notificationService.warning('请等待上传完成', '仍有文件正在上传，上传完成后再开始生成。');
+    return;
+  }
+  if (failedUploadedFiles.value.length > 0) {
+    notificationService.warning('请先处理失败文件', '有文件上传失败，请删除后重新上传，或仅保留已成功上传的文件。');
+    return;
+  }
+  if (readyUploadedFiles.value.length > 0) {
     const invalidFiles = getInvalidSourceMappedFiles();
     if (invalidFiles.length > 0) {
-      alert(`请先完善上传文件映射：${invalidFiles.join('、')}`);
+      notificationService.warning('请完善上传文件映射', `请先完善：${invalidFiles.join('、')}`);
       return;
     }
   }
@@ -3649,9 +3836,9 @@ async function generateLessonPlan() {
       teachingStyle: formData.value.teachingStyle || undefined,
       detailLevel: formData.value.detailLevel,
       freeTeachingIdea: requirementDraft.value.freeTeachingIdea || undefined,
-      useKnowledgeBase: uploadedFiles.value.length > 0 || selectedKnowledgeItems.value.length > 0,
-      tempFiles: uploadedFiles.value.length > 0 ? uploadedFiles.value.map(file => file.path) : undefined,
-      sourceMappings: uploadedFiles.value.length > 0 ? buildSourceMappings() : undefined,
+      useKnowledgeBase: readyUploadedFiles.value.length > 0 || selectedKnowledgeItems.value.length > 0,
+      tempFiles: readyUploadedFiles.value.length > 0 ? readyUploadedFiles.value.map(file => file.path) : undefined,
+      sourceMappings: readyUploadedFiles.value.length > 0 ? buildSourceMappings() : undefined,
       selectedKnowledgeItems: selectedKnowledgeItems.value.length > 0 ? buildSelectedKnowledgeItemsPayload() : undefined,
       clarifiedRequirement: buildClarifiedRequirementPayload(),
       structuredRequirement: buildStructuredRequirementPayload()
@@ -4474,18 +4661,32 @@ linear-gradient(180deg,#fff 0%,#f8fbfd 100%)}
 .head-info p{font-size:.85rem;color:#94a3b8}
 .upload-trigger-modern{display:inline-flex;align-items:center;padding:.5rem 1rem;background:rgba(99,102,241,.06);color:#6366f1;border:1.5px dashed rgba(99,102,241,.2);border-radius:12px;font-size:.84rem;font-weight:800;cursor:pointer;transition:all .2s ease}
 .upload-trigger-modern:hover{background:rgba(99,102,241,.12);border-color:#6366f1}
+.upload-trigger-modern.disabled{opacity:.55;cursor:not-allowed;pointer-events:none}
 .empty-resource-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3rem 1.5rem;border:1.5px dashed rgba(23,50,71,.08);border-radius:20px;background:rgba(23,50,71,.01);color:#94a3b8;gap:.8rem}
 .empty-icon{color:rgba(23,50,71,.1)}
 .resource-list-modern{display:flex;flex-direction:column;gap:1rem}
 .resource-item-modern{padding:1.2rem;border:1px solid rgba(23,50,71,.08);border-radius:18px;background:rgba(23,50,71,.01);transition:all .2s ease}
 .resource-item-modern:hover{background:#fff;border-color:rgba(99,102,241,.15);box-shadow:0 8px 16px rgba(23,50,71,.03)}
+.resource-item-modern.is-uploading{border-color:rgba(99,102,241,.22);background:rgba(99,102,241,.03)}
+.resource-item-modern.is-failed{border-color:rgba(239,68,68,.18);background:rgba(239,68,68,.03)}
 .item-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem}
 .file-info{display:flex;align-items:center;gap:.8rem}
 .file-type-icon{display:inline-flex;align-items:center;justify-content:center;width:2.5rem;height:2.5rem;border-radius:10px;background:#6366f1;color:#fff;font-size:.65rem;font-weight:900;text-transform:uppercase}
 .file-type-icon.kb{background:#f59e0b}
 .file-name{font-size:.95rem;font-weight:750;color:#173247}
+.file-submeta{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-top:.25rem;font-size:.76rem;color:#64748b}
+.status-chip{display:inline-flex;align-items:center;padding:.16rem .55rem;border-radius:999px;font-size:.72rem;font-weight:800}
+.status-chip.uploading{background:rgba(99,102,241,.1);color:#4f46e5}
+.status-chip.ready{background:rgba(16,185,129,.1);color:#059669}
+.status-chip.failed{background:rgba(239,68,68,.1);color:#dc2626}
 .remove-btn-icon{display:flex;align-items:center;justify-content:center;width:2rem;height:2rem;border-radius:50%;border:none;background:transparent;color:#94a3b8;transition:all .2s ease}
 .remove-btn-icon:hover{background:rgba(239,68,68,.1);color:#ef4444}
+.upload-status-panel{margin:-.15rem 0 1rem;padding:.85rem 1rem;border-radius:14px;border:1px solid rgba(23,50,71,.08);background:#fff}
+.upload-status-panel.uploading{border-color:rgba(99,102,241,.12);background:rgba(99,102,241,.03)}
+.upload-status-panel.failed{border-color:rgba(239,68,68,.12);background:rgba(239,68,68,.03)}
+.upload-progress-shell{height:.5rem;border-radius:999px;background:rgba(99,102,241,.12);overflow:hidden}
+.upload-progress-bar{height:100%;border-radius:999px;background:linear-gradient(90deg,#6366f1,#818cf8);transition:width .25s ease}
+.upload-status-copy{margin-top:.55rem;font-size:.78rem;line-height:1.5;color:#5f7384}
 .item-form-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem}
 .field-group-modern{display:flex;flex-direction:column;gap:.35rem}
 .field-group-modern .field-label{font-size:.75rem;font-weight:800;color:#64748b;display:flex;align-items:center;gap:.3rem}
