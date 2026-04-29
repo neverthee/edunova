@@ -216,15 +216,15 @@
     </transition>
 
     <transition name="fade">
-      <div v-if="showCreateStudentModal && activeClass" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div v-if="showCreateStudentModal && activeClass" class="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
         <!-- Backdrop -->
         <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" @click="closeCreateStudentModal"></div>
         
         <!-- Modal Content -->
-        <div class="relative w-full max-w-4xl overflow-hidden rounded-[2rem] bg-white shadow-2xl transform transition-all">
+        <div class="relative flex max-h-[calc(100vh-1rem)] w-full max-w-4xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl transform transition-all sm:max-h-[calc(100vh-2rem)]">
           <div class="absolute right-0 top-0 h-40 w-40 -translate-y-16 translate-x-16 rounded-full bg-gradient-to-br from-emerald-100 to-teal-100 opacity-50 blur-3xl"></div>
           
-          <div class="relative z-10 px-8 py-8 border-b border-slate-100">
+          <div class="relative z-10 border-b border-slate-100 px-5 py-5 sm:px-8 sm:py-8">
             <div class="flex items-center gap-3">
               <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path></svg>
@@ -236,7 +236,7 @@
             </div>
           </div>
 
-          <div class="relative z-10 p-8 space-y-6 bg-slate-50/50">
+          <div class="relative z-10 min-h-0 flex-1 space-y-6 overflow-y-auto bg-slate-50/50 p-5 sm:p-8">
             <div class="inline-flex rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
               <button
                 type="button"
@@ -294,7 +294,7 @@
                 <div class="mt-2 text-sm text-slate-500">当前没有匹配的已注册学生，可切换到“新建学生”。</div>
               </div>
 
-              <div v-else class="max-h-[420px] space-y-3 overflow-y-auto pr-2 custom-scrollbar">
+              <div v-else class="space-y-3 pr-1 sm:pr-2">
                 <label
                   v-for="student in filteredStudentCandidates"
                   :key="student.id"
@@ -332,7 +332,7 @@
             </div>
 
             <div v-else class="space-y-5">
-              <div class="grid grid-cols-2 gap-5">
+              <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
                 <div>
                   <label class="mb-2 block text-sm font-semibold text-slate-700">姓名</label>
                   <input
@@ -391,11 +391,11 @@
             </div>
           </div>
 
-          <div class="relative z-10 flex items-center justify-end gap-3 px-8 py-6 border-t border-slate-100 bg-white">
+          <div class="relative z-10 flex flex-col-reverse gap-3 border-t border-slate-100 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-8 sm:py-6">
             <button
               type="button"
               @click="closeCreateStudentModal"
-              class="rounded-xl px-6 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
+              class="w-full rounded-xl px-6 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 sm:w-auto"
             >
               取消
             </button>
@@ -403,7 +403,7 @@
               type="button"
               @click="submitStudentAction"
               :disabled="studentSubmitting"
-              class="rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white shadow-md shadow-emerald-200 transition hover:bg-emerald-700 hover:shadow-lg disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
+              class="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white shadow-md shadow-emerald-200 transition hover:bg-emerald-700 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto"
             >
               <svg v-if="studentSubmitting" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
               {{ studentSubmitting ? '添加中...' : (studentMode === 'existing' ? '加入班级' : '确认创建') }}
