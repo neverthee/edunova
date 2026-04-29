@@ -543,6 +543,19 @@ function renderAssistantMessage(content: string): string {
   return renderedHtml;
 }
 
+function formatAssistantErrorMessage(rawMessage: unknown): string {
+  const message = String(rawMessage || '').trim();
+  if (!message) {
+    return '抱歉，智能助手暂时不可用，请稍后再试。';
+  }
+
+  if (/AllocationQuota\.FreeTierOnly|free tier/i.test(message)) {
+    return '当前 AI 服务的免费额度已用尽。请在服务端模型平台关闭“仅使用免费额度”限制，或更换可用的付费 API Key 后再试。';
+  }
+
+  return `抱歉，智能助手暂时不可用：${message}`;
+}
+
 // 复制消息内容
 function copyMessageContent(content: string): void {
   if (!content) return;
@@ -902,7 +915,23 @@ async function sendMessage() {
     });
     
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      let errorMessage = `HTTP error! status: ${response.status}`;
+      try {
+        const errorPayload = await response.json();
+        if (errorPayload && typeof errorPayload === 'object') {
+          errorMessage = String((errorPayload as any).message || (errorPayload as any).msg || errorMessage);
+        }
+      } catch {
+        try {
+          const errorText = await response.text();
+          if (errorText.trim()) {
+            errorMessage = errorText.trim();
+          }
+        } catch {
+          // ignore secondary parsing failure
+        }
+      }
+      throw new Error(errorMessage);
     }
     
     // 获取响应的reader
@@ -955,6 +984,14 @@ async function sendMessage() {
                 });
               }
             }
+
+            if (data.status === 'error') {
+              chatMessages.value[chatMessages.value.length - 1].content =
+                formatAssistantErrorMessage(data.message);
+              chatMessages.value = [...chatMessages.value];
+              loading.value = false;
+              return;
+            }
             
             // 处理完成信号
               if (data.status === 'done') {
@@ -995,15 +1032,18 @@ async function sendMessage() {
     loading.value = false;
   } catch (error) {
     console.error('发送消息失败:', error);
+    const friendlyMessage = formatAssistantErrorMessage(
+      error instanceof Error ? error.message : String(error)
+    );
     
     // 如果已经添加了AI消息，更新为错误消息
     if (chatMessages.value.length > 1) {
-      chatMessages.value[chatMessages.value.length - 1].content = '抱歉，我遇到了一些问题。请稍后再试。';
+      chatMessages.value[chatMessages.value.length - 1].content = friendlyMessage;
     } else {
       // 如果没有添加AI消息，添加一个错误消息
       chatMessages.value.push({
         role: 'assistant',
-        content: '抱歉，我遇到了一些问题。请稍后再试。'
+        content: friendlyMessage
       });
     }
     

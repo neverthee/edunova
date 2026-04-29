@@ -16,6 +16,7 @@ from backend.models.learning import LearningRecord, ChatHistory, KnowledgeBaseQu
 from backend.models.material import Material
 from backend.models.assessment import Assessment, StudentAnswer, AssessmentSubmission
 from backend.models.classroom import TeacherClass, teacher_class_students, assessment_publish_classes
+from backend.models.student_quiz import StudentAIQuiz
 import hashlib
 import requests
 import openai
@@ -2828,9 +2829,8 @@ def delete_course(course_id):
         # 清理关联业务数据
         LearningRecord.query.filter_by(course_id=course_id).delete(synchronize_session=False)
         ChatHistory.query.filter_by(course_id=course_id).delete(synchronize_session=False)
-        db.session.execute(
-            course_students.delete().where(course_students.c.course_id == course_id)
-        )
+        StudentAIQuiz.query.filter_by(course_id=course_id).delete(synchronize_session=False)
+        course.students.clear()
 
         assessments = Assessment.query.filter_by(course_id=course_id).all()
         assessment_ids = [assessment.id for assessment in assessments]

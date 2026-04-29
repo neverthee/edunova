@@ -272,6 +272,7 @@ import notificationService from '../../services/notificationService';
 import dialogService from '../../services/dialogService';
 import { API_ORIGIN } from '@/config/api';
 import defaultCourseImage from '@/assets/default-course.jpg';
+import axios from 'axios';
 
 const props = withDefaults(defineProps<{
   hideHeader?: boolean;
@@ -623,7 +624,13 @@ async function confirmDeleteCourse(course: Course) {
       await fetchCourses();
     } catch (error) {
       console.error('删除课程失败:', error);
-      notificationService.error('删除课程失败', '操作未能完成，请重试');
+      const errorMessage = axios.isAxiosError(error)
+        ? String(error.response?.data?.message || error.response?.data?.msg || error.message || '').trim()
+        : String((error as Error)?.message || '').trim();
+      notificationService.error(
+        '删除课程失败',
+        errorMessage || '操作未能完成，请重试'
+      );
     }
   }
 }
