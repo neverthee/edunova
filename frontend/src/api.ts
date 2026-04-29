@@ -314,9 +314,9 @@ export const assessmentAPI = {
         return { data: null };
       }
       
-      // 特别处理: 检查data是否是直接的响应对象
+      // axios 响应拦截器已经返回 response.data，这里统一包装成 { data }
       if (response.data === undefined) {
-        console.log('响应中没有data属性，尝试直接使用response');
+        console.log('响应中没有data属性，按已解包数据处理');
         return { data: response };
       }
       
@@ -355,12 +355,11 @@ export const assessmentAPI = {
         return { data: { status: 'error', message: '无响应' } };
       }
       
-      // 特别处理: 检查响应格式
+      // axios 响应拦截器已经返回 response.data，这里不能再伪造 status，
+      // 否则会把后端返回的 success/error 错误改写成 processing。
       if (response.data === undefined) {
-        console.log('状态响应中没有data属性，尝试直接使用response');
-        // 解构response对象，但不包含可能导致重复的属性
-        const { status, ...restProps } = response;
-        return { data: { status: 'processing', ...restProps } };
+        console.log('状态响应中没有data属性，按已解包数据处理');
+        return { data: response };
       }
       
       return response;

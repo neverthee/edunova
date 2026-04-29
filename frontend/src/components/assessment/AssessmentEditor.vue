@@ -677,7 +677,7 @@
           <div class="mx-auto mt-6 w-64 overflow-hidden rounded-full bg-gray-100 h-1.5">
             <div class="bg-purple-600 h-full rounded-full progress-bar transition-all duration-300 ease-out"></div>
           </div>
-          <p class="mt-4 text-xs text-gray-500">生成高质量评估内容可能需要1-3分钟</p>
+          <p class="mt-4 text-xs text-gray-500">生成高质量评估内容可能需要 5-10 分钟，生成完成后会自动回填到表单</p>
         </div>
         
         <form v-else @submit.prevent="generateAssessmentWithAI" class="space-y-5">
